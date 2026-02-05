@@ -10,6 +10,19 @@
 
 ### Integration
 
+
+The system operates on a strict three-tier separation of concerns to ensure simulation integrity and client responsiveness.
+
+| Layer | Responsibility | Authority |
+| --- | --- | --- |
+| **The Engine** | State production, delta computation, and "Heartbeat" simulation. | Absolute (Source of Truth) |
+| **The Controller** | ACL validation, "What-If" forecasting, contract brokerage, and diegetic visualization. | Logical (Gatekeeper/Visual Presentation) |
+| **The UI** | Diegetic visualization, forecast HUDs, command buffering, and batch instruction sending. | Visual (Presentation) |
+
+#### Communication Flow
+
+1. **The Forecast Loop:** UI requests a simulation from the Controller -> Controller queries Engine state -> Controller runs local "What-If" logic -> UI renders "Ghost Bars."
+2. **The Command Loop:** UI sends batch instructions -> Controller validates funds/ACL -> Controller issues authoritative command to Engine -> Engine updates State.
 ## Features
 
 ### Feature 1
@@ -32,6 +45,26 @@
 
 #### Other Notes
 
+### Feature: World Engine
+
+#### Context, Aim & Integration
+The Engine is a headless simulation environment that manages the world state without awareness of player identities, focusing solely on **Entities** and **States**.
+
+#### Constraints
+
+#### User Stories
+
+#### Technical Requirements
+
+#### API
+
+#### Data Layer
+
+#### Validation
+
+#### Dependencies
+
+#### Other Notes
 ## Roadmap
 
 ### Milestone 1

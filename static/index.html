@@ -15,6 +15,7 @@
             <input type="text" id="docName" placeholder="Document Name" value="default">
             <button onclick="initDocument(false)">Load</button>
             <button onclick="initDocument(true)" class="danger">Reset</button>
+            <button onclick="viewFullDocument()" class="secondary">View Full Doc</button>
             <a id="downloadLink" href="#" target="_blank" class="button">Download md</a>
         </div>
     </header>
@@ -121,18 +122,31 @@ To prevent brute-force attacks, the login endpoint must enforce a rate limit of 
             <button onclick="processInput()" class="primary">Process Update</button>
         </div>
 
-        <div class="panel right">
+        <div id="panelRight" class="panel right">
             <h2>3. The Arbiter (Merge Review)</h2>
+            <div id="arbiterControls" class="hidden">
+                <label for="targetSectionSelect">Target Section:</label>
+                <select id="targetSectionSelect"></select>
+            </div>
 
             <div id="diffView" class="hidden">
                 <div class="diff-container">
-                    <div class="diff-col">
-                        <h3>Original (Matched Section)</h3>
-                        <div id="originalContent" class="preview-box"></div>
+                    <div class="diff-row top">
+                        <div class="diff-col half">
+                            <h3>Original (Current in Doc)</h3>
+                            <div id="originalContent" class="preview-box"></div>
+                        </div>
+                        <div class="diff-col half">
+                            <h3>Input Update</h3>
+                            <div id="newContent" class="preview-box"></div>
+                        </div>
                     </div>
-                    <div class="diff-col">
+                    <div class="diff-row bottom">
                         <h3>Proposed Merge</h3>
-                        <textarea id="mergedContent" class="preview-box editable"></textarea>
+                        <div class="merge-wrapper">
+                            <textarea id="mergedContent" class="preview-box editable"></textarea>
+                            <div id="mergeSpinner" class="spinner hidden"></div>
+                        </div>
                     </div>
                 </div>
                 <div class="actions">
@@ -143,7 +157,10 @@ To prevent brute-force attacks, the login endpoint must enforce a rate limit of 
 
             <div id="statusMessage"></div>
 
-            <h2>Current Document Preview</h2>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem;">
+                <h2>Current Document Preview</h2>
+                <button id="btnEditSection" onclick="editCurrentSection()" class="primary hidden">Edit Section</button>
+            </div>
             <pre id="docPreview"></pre>
         </div>
     </main>
