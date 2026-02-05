@@ -1,0 +1,103 @@
+This is a comprehensive set of foundational data. I have processed the "Engine/Controller/UI" stack and the implementation phases into the requested specification format.
+
+I've broken these down into logical sections following your macro structure: **Integration** (for the architecture), specific **Feature** blocks for the UI/Logic components, and the **Roadmap**.
+
+<<<SPEC_START>>>
+
+* Target-Section: Context, Aim & Integration: Integration
+* Change-Summary: Defined the tri-layer architectural stack (Engine, Controller, UI) and their communication protocols.
+
+### Architectural Stack
+
+The system operates on a strict three-tier separation of concerns to ensure simulation integrity and client responsiveness.
+
+| Layer | Responsibility | Authority |
+| --- | --- | --- |
+| **The Engine** | State production, delta computation, and "Heartbeat" simulation. | Absolute (Source of Truth) |
+| **The Controller** | ACL validation, "What-If" forecasting, and contract brokerage. | Logical (Gatekeeper) |
+| **The UI** | Diegetic visualization, forecast HUDs, and command buffering. | Visual (Presentation) |
+
+#### Communication Flow
+
+1. **The Forecast Loop:** UI requests a simulation from the Controller -> Controller queries Engine state -> Controller runs local "What-If" logic -> UI renders "Ghost Bars."
+2. **The Command Loop:** UI sends batch instructions -> Controller validates funds/ACL -> Controller issues authoritative command to Engine -> Engine updates State.
+<<<SPEC_END>>>
+
+<<<SPEC_START>>>
+
+* Target-Section: Feature: World Engine
+* Change-Summary: Established the "Black Box" simulation logic and authoritative registries.
+
+#### Context, Aim & Integration
+
+The Engine is a headless simulation environment that manages the world state without awareness of player identities, focusing solely on **Entities** and **States**.
+
+#### Technical Requirements
+
+* **State Resolution:** Must calculate results of worker/task pairings based on regional deltas.
+* **Randomness Authority:** Centralized RNG for monster raids, caravan survival, and loot tables.
+* **Ownership Registry:** Authoritative ledger for city, road, and worker ownership.
+* **The Event Log:** Immutable record of world events (Caravan loss, "Flashes") to be consumed by the Intrigue system.
+
+#### Constraints
+
+* The Engine must ignore any command not signed/originated by the Controller.
+* State updates are computed as deltas triggered by player interaction or "ticks."
+<<<SPEC_END>>>
+
+<<<SPEC_START>>>
+
+* Target-Section: Feature: UI Architecture
+* Change-Summary: Detailed the diegetic UI components including HUD, Macro Map, and City Views.
+
+#### Context, Aim & Integration
+
+The UI acts as the "CEO’s Visualizer," utilizing a "Gritty/Rusted" T1 aesthetic. It prioritizes forecasting over raw data.
+
+#### UI Modules
+
+* **The HUD:** Persistent display of Credits, Global Stability Index (), and the Shield Subscription Timer.
+* **The Vertical Map:** A cross-section view of the Sphere.
+* *Tier 1:* Bottom (Dark/Fog).
+* *Tier 2:* Mid (Dim).
+* *Tier 3:* Top (Bright).
+
+
+* **City View:** Functional layout for resource slots, processing (Refineries), and the Garrison/Shield Generator.
+* **Neural Cortex (HRM):** Interface for worker profiles, "Memory Wipes," and shift scheduling via a timeline view.
+
+#### Technical Requirements
+
+* **Forecast HUD:** Must render "Ghost Bars" to preview production changes before commitment.
+* **Warning System:** Must highlight discrepancies where "Reality Spikes" cause actual results to deviate from the Controller's forecast.
+<<<SPEC_END>>>
+
+<<<SPEC_START>>>
+
+* Target-Section: Roadmap
+* Change-Summary: Outlined the 5-phase progression from MVP (Scavenger) to T2 Metamorphosis.
+
+### Milestone 1: The Scavenger (MVP)
+
+#### Content
+
+* **Phase 1 (Basic Idle):** Resource Controller (RawReality, Credits), Building classes, and basic City View.
+* **Phase 2 (Survival Loop):** Shielding system (Credit drain), Threat Controller (RNG Raids), and Stability HUD.
+
+### Milestone 2: The Logistics Expansion
+
+#### Content
+
+* **Phase 3 (Connectivity):** Map Graph (Nodes/Edges), Caravan Entity Mover, and "Return Trip" loot logic for Blueprints.
+* **Phase 4 (Human Element):** Worker properties (Dissonance, Sanity), Template System, and Shift Logic.
+
+### Milestone 3: The Metamorphosis (Tier 2)
+
+#### Content
+
+* **Phase 5 (Tycoon):** Corporate state (Debt/Reputation), Buyout/Prestige mechanics, and Road Sovereignty (Taxation logic).
+<<<SPEC_END>>>
+
+---
+
+This integration covers the high-level architecture and the phased roadmap. Would you like me to expand on the **Data Layer** for the **Worker/Entity** models next, or should we define the specific **API** endpoints between the Controller and the Engine?

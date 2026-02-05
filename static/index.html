@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Specer - Semantic Spec Merger</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <header>
+        <h1>Specer</h1>
+        <div class="doc-controls">
+            <input type="text" id="docName" placeholder="Document Name" value="default">
+            <button onclick="initDocument(false)">Load</button>
+            <button onclick="initDocument(true)" class="danger">Reset</button>
+            <a id="downloadLink" href="#" target="_blank" class="button">Download md</a>
+        </div>
+    </header>
+
+    <main>
+        <div class="sidebar">
+            <h2>Structure</h2>
+            <div id="structureList" class="structure-list"></div>
+        </div>
+        <div class="panel left">
+            <h2>1. The Protocol</h2>
+            <div class="protocol-box">
+                <p>Copy this system prompt to your LLM:</p>
+                <textarea readonly id="protocolTemplate">You are acting as an Expert Technical Architect and Documentation Lead. We are collaborating to refine a software specification document.
+
+To ensure my automated tools can parse our discussion, you must strictly adhere to the following "Data Contract" for every response involving spec updates:
+
+1. THE WRAPPER
+   
+   * Any actual specification content must be wrapped strictly between these delimiters:
+     <<<SPEC_START>>>
+     [Content goes here]
+     <<<SPEC_END>>>
+
+2. THE METADATA (Required at the top of every block)
+   * The first line inside the block must be: `* Target-Section: [Name of the Heading/Topic]`
+      * Attempt to follow the structure defined in section 5.
+   * The second line inside the block must be: `* Change-Summary: [One sentence explaining the change/addition]`
+   * Leave one empty line after the Change-Summary before starting the content.
+
+3. THE CONTENT
+   * Use standard Markdown (headings, bullet points, tables).
+   * Do NOT wrap the delimiters themselves inside Markdown code blocks (like ```markdown). Output them as raw text.
+   * If a response contains multiple distinct sections (e.g., "Authentication" and "Billing"), use separate <<<SPEC_START>>> blocks for each.
+
+4. CONVERSATION
+   * You may chat normally outside the blocks (e.g., to ask clarifying questions), but the text inside the blocks must be pure documentation, ready to be merged into the master file.
+
+5. STRUCTURE
+The document macro structure is as follows:
+
+# Document Title
+
+## Lexicon
+
+## Context, Aim & Integration
+
+### Context
+
+### Aim
+
+### Integration
+
+## Features
+
+### Feature 1 (e.g. User Authentication)
+
+#### Context, Aim & Integration
+
+#### Constraints
+
+#### User Stories
+
+#### Technical Requirements
+
+#### API
+
+#### Data Layer
+
+#### Validation
+
+#### Dependencies
+
+#### Other Notes
+
+### Feature 2...
+
+## Roadmap
+
+### Milestone 1 (e.g. MVP)
+
+#### Content
+
+#### Validation
+
+### Milestone 2...
+
+
+Example of the required output format:
+
+<<<SPEC_START>>>
+Target-Section: Feature: User Authentication: Constraints
+Change-Summary: Added rate limiting rules to the login endpoint.
+
+### Login Rate Limiting
+To prevent brute-force attacks, the login endpoint must enforce a rate limit of 5 attempts per minute per IP address.
+<<<SPEC_END>>>
+                </textarea>
+                <button onclick="copyProtocol()">Copy Protocol</button>
+            </div>
+
+            <h2>2. Input (LLM Reply)</h2>
+            <textarea id="inputArea" placeholder="Paste the LLM's response here..."></textarea>
+            <button onclick="processInput()" class="primary">Process Update</button>
+        </div>
+
+        <div class="panel right">
+            <h2>3. The Arbiter (Merge Review)</h2>
+
+            <div id="diffView" class="hidden">
+                <div class="diff-container">
+                    <div class="diff-col">
+                        <h3>Original (Matched Section)</h3>
+                        <div id="originalContent" class="preview-box"></div>
+                    </div>
+                    <div class="diff-col">
+                        <h3>Proposed Merge</h3>
+                        <textarea id="mergedContent" class="preview-box editable"></textarea>
+                    </div>
+                </div>
+                <div class="actions">
+                    <button onclick="commitMerge()" class="success">Accept & Merge</button>
+                    <button onclick="discardMerge()" class="secondary">Discard</button>
+                </div>
+            </div>
+
+            <div id="statusMessage"></div>
+
+            <h2>Current Document Preview</h2>
+            <pre id="docPreview"></pre>
+        </div>
+    </main>
+
+    <script src="app.js?v=2"></script>
+</body>
+
+</html>
