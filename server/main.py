@@ -65,8 +65,35 @@ async def commit_doc(req: CommitRequest):
 
 from server.vector_store import store
 from server.ollama_client import ollama
+import uuid
+import asyncio
 
-# ... (Imports)
+# Task Manager State
+# Map task_id -> {"status": "pending"|"completed"|"failed"|"cancelled", "result": ..., "task_obj": asyncio.Task}
+tasks = {}
+
+async def run_merge_task(task_id: str, req: DiffRequest):
+    try:
+        logger.info(f"Task {task_id}: Starting merge...")
+        # We can implement explicit cancellation check if we want, but task.cancel() handles the await
+        merged_text = await ollama.generate_merge(req.original, req.new, "Merge update into section")
+        
+        # Log result details
+        if merged_text is None:
+             logger.error(f"Task {task_id}: merged_text is None!")
+        else:
+             logger.info(f"Task {task_id}: Generated {len(merged_text)} chars. Content Preview: {merged_text[:50]}...")
+
+        tasks[task_id]["result"] = merged_text
+        tasks[task_id]["status"] = "completed"
+        logger.info(f"Task {task_id}: Completed.")
+    except asyncio.CancelledError:
+        logger.info(f"Task {task_id}: Cancelled.")
+        tasks[task_id]["status"] = "cancelled"
+    except Exception as e:
+        logger.error(f"Task {task_id}: Failed with {e}")
+        tasks[task_id]["status"] = "failed"
+        tasks[task_id]["error"] = str(e)
 
 @app.post("/api/process")
 async def process_text(req: ProcessRequest):
@@ -261,15 +288,47 @@ async def process_text(req: ProcessRequest):
     }
 
 @app.post("/api/diff")
-async def get_diff(req: DiffRequest):
-    logger.info("DIFF Request: Generating merge proposal via LLM...")
-    # Call Llama 3.2 to merge
-    merged_text = await ollama.generate_merge(req.original, req.new, "Merge update into section")
-    logger.info(f"DIFF Success: Generated {len(merged_text)} chars.")
+async def start_diff_task(req: DiffRequest):
+    logger.info("DIFF Request: Starting background merge task...")
+    task_id = str(uuid.uuid4())
     
-    return {
-        "merged": merged_text
+    # Create asyncio task
+    task = asyncio.create_task(run_merge_task(task_id, req))
+    
+    tasks[task_id] = {
+        "status": "pending",
+        "result": None,
+        "task_obj": task
     }
+    
+    return {"task_id": task_id}
+
+@app.get("/api/task/{task_id}")
+async def get_task_status(task_id: str):
+    if task_id not in tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    t = tasks[task_id]
+    return {
+        "task_id": task_id,
+        "status": t["status"],
+        "result": t.get("result"),
+        "error": t.get("error")
+    }
+
+@app.post("/api/task/{task_id}/cancel")
+async def cancel_task(task_id: str):
+    if task_id not in tasks:
+         raise HTTPException(status_code=404, detail="Task not found")
+         
+    t = tasks[task_id]
+    if t["status"] in ["pending", "running"]: # Treating pending as running for simplicity
+        t["task_obj"].cancel()
+        t["status"] = "cancelled"
+        logger.info(f"Cancellation requested for Task {task_id}")
+        return {"message": "Cancellation requested"}
+    
+    return {"message": "Task already completed or cancelled"}
 
 # Mount static files (Frontend)
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

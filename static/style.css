@@ -112,6 +112,24 @@ main {
     font-size: 0.9em;
 }
 
+.structure-item.level-4 {
+    margin-left: 30px;
+    font-size: 0.85em;
+    color: #555;
+}
+
+.structure-item.level-5 {
+    margin-left: 40px;
+    font-size: 0.85em;
+    color: #777;
+}
+
+.structure-item.level-6 {
+    margin-left: 50px;
+    font-size: 0.8em;
+    color: #999;
+}
+
 .structure-item.pending-merge {
     color: #c0392b;
     position: relative;
@@ -281,4 +299,17 @@ textarea {
     border: 1px solid #ddd;
     max-height: 200px;
     overflow-y: auto;
+}
+
+.actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+    align-items: center;
+}
+
+button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+    opacity: 0.6;
 }

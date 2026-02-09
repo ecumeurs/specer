@@ -146,26 +146,27 @@ To prevent brute-force attacks, the login endpoint must enforce a rate limit of 
                         <div class="merge-wrapper">
                             <textarea id="mergedContent" class="preview-box editable"></textarea>
                             <div id="mergeSpinner" class="spinner hidden"></div>
+                            <div class="actions">
+                                <button onclick="commitMerge()" class="success">Accept & Merge</button>
+                                <button onclick="discardMerge()" class="secondary">Discard</button>
+                                <button id="btnStopMerge" onclick="stopGeneration()" class="danger"
+                                    disabled>Stop</button>
+                            </div>
                         </div>
+
+                        <div id="statusMessage"></div>
+
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem;">
+                            <h2>Current Document Preview</h2>
+                            <button id="btnEditSection" onclick="editCurrentSection()" class="primary hidden">Edit
+                                Section</button>
+                        </div>
+                        <pre id="docPreview"></pre>
                     </div>
-                </div>
-                <div class="actions">
-                    <button onclick="commitMerge()" class="success">Accept & Merge</button>
-                    <button onclick="discardMerge()" class="secondary">Discard</button>
-                </div>
-            </div>
-
-            <div id="statusMessage"></div>
-
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem;">
-                <h2>Current Document Preview</h2>
-                <button id="btnEditSection" onclick="editCurrentSection()" class="primary hidden">Edit Section</button>
-            </div>
-            <pre id="docPreview"></pre>
-        </div>
     </main>
 
-    <script src="app.js?v=2"></script>
+    <script src="app.js?v=7"></script>
 </body>
 
 </html>

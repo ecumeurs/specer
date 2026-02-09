@@ -122,6 +122,7 @@ async function processInput() {
     Object.keys(pendingMerges).forEach(title => {
         const firstItem = pendingMerges[title][0];
         const currentContent = getRealOriginal(title, firstItem.original_text);
+        // Just trigger it. The handle returned will start the background work.
         getMergePromise(title, currentContent, firstItem.new_text);
     });
 
@@ -160,41 +161,21 @@ function getCacheKey(original, newText) {
     return `${safeO}|||${safeN}`;
 }
 
-// Fetch or retrieve promise
-function getMergePromise(sectionTitle, original, newText) {
-    const key = getCacheKey(original, newText);
-
-    if (mergeCache[key]) {
-        return mergeCache[key];
-    }
-
-    const promise = (async () => {
-        console.log(`[Background] Fetching merge for ${sectionTitle}...`);
-        const res = await fetch(`${API_BASE}/diff`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ original, new: newText })
-        });
-        const data = await res.json();
-        return data.merged;
-    })();
-
-    mergeCache[key] = promise;
-    return promise;
-}
+// Track active generation
+let currentTaskId = null;
 
 async function selectPendingMerge(title) {
     const items = pendingMerges[title];
     if (!items || items.length === 0) return;
 
-    const currentMatch = items[0]; // Get the first one
+    const currentMatch = items[0];
 
     // 1. Determine "Original" Content
     let realOriginal = getRealOriginal(title, currentMatch.original_text);
 
     // 2. Setup partial view
     document.getElementById('diffView').classList.remove('hidden');
-    document.getElementById('arbiterControls').classList.remove('hidden'); // Show drop down
+    document.getElementById('arbiterControls').classList.remove('hidden');
     document.getElementById('originalContent').textContent = realOriginal;
     document.getElementById('newContent').textContent = currentMatch.new_text;
 
@@ -204,27 +185,441 @@ async function selectPendingMerge(title) {
     // 3. Prepare Merge View
     const mergedArea = document.getElementById('mergedContent');
     const spinner = document.getElementById('mergeSpinner');
+    const stopBtn = document.getElementById('btnStopMerge');
 
     mergedArea.value = "";
     document.getElementById('diffView').dataset.targetSection = title;
 
-    // Show spinner
+    // Show spinner & Stop button
+    // We assume it's running/pending until proven otherwise
     spinner.classList.remove('hidden');
-    notify(`Generating merge for '${title}' (${items.length} remaining)...`);
-
-    try {
-        // 4. Fetch Merge (Cache-aware)
-        const result = await getMergePromise(title, realOriginal, currentMatch.new_text);
-        mergedArea.value = result;
-    } catch (e) {
-        console.error(e);
-        mergedArea.value = "Error generating merge.";
-        notify("Error generating merge.");
-    } finally {
-        spinner.classList.add('hidden');
+    if (stopBtn) {
+        console.log("[UI] Enabling Stop Button");
+        stopBtn.disabled = false;
+    } else {
+        console.warn("[UI] Stop Button not found in DOM!");
     }
 
-    notify(`Review merge for '${title}'.`);
+    notify(`Generating merge for '${title}' (${items.length} remaining)...`);
+
+    // Cancel previous task if valid
+    if (currentTaskId) {
+        currentTaskId = null;
+    }
+
+    try {
+        // 4. Fetch Merge (Polling) via Cache
+        const cacheEntry = getMergePromise(title, realOriginal, currentMatch.new_text);
+
+        // Wait for Task ID to be assigned (in case it's starting up)
+        if (cacheEntry.idPromise) {
+            currentTaskId = await cacheEntry.idPromise;
+            console.log(`[UI] Attached active Task ID: ${currentTaskId}`);
+        }
+
+        // Await the result
+        const result = await cacheEntry.resultPromise;
+        console.log(`[UI] Result received for ${title}:`, result);
+
+        // CHECK IF STILL ACTIVE
+        if (document.getElementById('diffView').dataset.targetSection !== title) {
+            console.log(`[UI] Ignoring result for ${title} as view has changed.`);
+            return;
+        }
+
+        if (result === undefined || result === null) {
+            mergedArea.value = "Error: Result was empty.";
+        } else {
+            console.log(`[UI] Updating mergedArea value for ${title}`);
+            mergedArea.value = result;
+        }
+
+    } catch (e) {
+        if (e.message === 'Cancelled') {
+            mergedArea.value = "Generation stopped by user.";
+            notify("Generation stopped.");
+        } else {
+            console.error(e);
+            mergedArea.value = e.message || "Error generating merge.";
+            notify("Error generating merge.");
+        }
+    } finally {
+        spinner.classList.add('hidden');
+        if (stopBtn) stopBtn.disabled = true;
+        // Clear if we are still the active one
+        if (currentTaskId === cacheEntry?.taskId) {
+            currentTaskId = null;
+        }
+    }
+}
+
+async function stopGeneration() {
+    if (currentTaskId) {
+        try {
+            notify(`Stopping task ${currentTaskId}...`);
+            console.log(`[UI] Stopping task ${currentTaskId}`);
+            await fetch(`${API_BASE}/task/${currentTaskId}/cancel`, { method: 'POST' });
+        } catch (e) {
+            console.error("Failed to send cancel request", e);
+            notify("Failed to stop.");
+        }
+        // Don't null here, let the catch/finally in selectPendingMerge handle it?
+        // Actually we should null it to prevent double clicks, but keep it for logic?
+        // Let's keep it nulling to be safe UI-wise.
+        currentTaskId = null;
+    } else {
+        console.warn("[UI] Stop clicked but no currentTaskId!");
+    }
+}
+
+// Fetch or retrieve { taskId, idPromise, resultPromise }
+function getMergePromise(sectionTitle, original, newText) {
+    const key = getCacheKey(original, newText);
+
+    if (mergeCache[key]) {
+        return mergeCache[key];
+    }
+
+    // Logic to resolve ID
+    let resolveId;
+    const idPromise = new Promise(r => { resolveId = r; });
+
+    // Logic to run task
+    const resultPromise = (async () => {
+        console.log(`[Background] Starting task for ${sectionTitle}...`);
+
+        // 1. Start Task
+        let taskId = null;
+        try {
+            const startRes = await fetch(`${API_BASE}/diff`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ original, new: newText })
+            });
+            const startData = await startRes.json();
+            taskId = startData.task_id;
+
+            // Resolve ID for UI
+            resolveId(taskId);
+
+            // Update Handle
+            mergeCache[key].taskId = taskId;
+            console.log(`[Background] Task started: ${taskId}`);
+        } catch (err) {
+            console.error("Failed to start task:", err);
+            resolveId(null);
+            throw err;
+        }
+
+        // 2. Poll
+        while (true) {
+            await new Promise(r => setTimeout(r, 500));
+
+            const checkRes = await fetch(`${API_BASE}/task/${taskId}`);
+            if (checkRes.status === 404) throw new Error("Task lost");
+
+            const checkData = await checkRes.json();
+
+            if (checkData.status === "completed") {
+                return checkData.result;
+            }
+            if (checkData.status === "failed") {
+                throw new Error(checkData.error);
+            }
+            if (checkData.status === "cancelled") {
+                throw new Error("Cancelled");
+            }
+        }
+    })();
+
+    const handle = {
+        taskId: null, // will be set later
+        idPromise: idPromise,
+        resultPromise: resultPromise
+    };
+
+    mergeCache[key] = handle;
+    return handle;
+}
+
+function generateFeatureTemplate(name) {
+    return `### Feature: ${name}
+
+#### Context, Aim & Integration
+
+#### Constraints
+
+#### User Stories
+
+#### Technical Requirements
+
+#### API
+
+#### Data Layer
+
+#### Validation
+
+#### Dependencies
+
+#### Other Notes
+`;
+}
+
+function generateMilestoneTemplate(name) {
+    return `### Milestone: ${name}
+
+#### Content
+
+#### Validation
+`;
+}
+
+async function createNewSectionFromTemplate(newTitle, templateContent, item, oldTitle) {
+    // Let's add it to currentStructure immediately so it persists as a "Draft Section".
+    currentStructure.push({
+        title: newTitle,
+        level: 3, // Default for features/milestones
+        content: templateContent
+    });
+
+    // Now reassign the merge to this new title
+    reassignMerge(item, oldTitle, newTitle);
+}
+
+function reassignMerge(item, oldTitle, newTitle) {
+    // 1. Remove from old
+    if (pendingMerges[oldTitle]) {
+        pendingMerges[oldTitle].shift();
+        if (pendingMerges[oldTitle].length === 0) {
+            delete pendingMerges[oldTitle];
+        }
+    }
+
+    // 2. Add to new
+    if (!pendingMerges[newTitle]) {
+        pendingMerges[newTitle] = [];
+    }
+    // We put it at the FRONT if we want to deal with it now, or BACK?
+    // Since we are "moving" the actively viewed item, we probably want to view it immediately under the new context.
+    // So put at FRONT.
+    pendingMerges[newTitle].unshift(item);
+
+    // 3. Update Item's internal section tag (for consistency, though less used)
+    item.section = newTitle;
+
+    // 4. Refresh UI
+    renderStructure();
+
+    // 5. Select it in its new home
+    selectPendingMerge(newTitle);
+
+    notify(`Moved merge to '${newTitle}'.`);
+}
+
+function discardMerge() {
+    const title = document.getElementById('diffView').dataset.targetSection;
+
+    notify("Discarded.");
+
+    // 1. Cleanup Queue
+    if (pendingMerges[title]) {
+        pendingMerges[title].shift();
+        if (pendingMerges[title].length === 0) {
+            delete pendingMerges[title];
+        }
+    }
+
+    // 2. Auto-Advance
+    handleAutoAdvance(title);
+}
+
+function handleAutoAdvance(lastTitle) {
+    renderStructure();
+
+    if (pendingMerges[lastTitle] && pendingMerges[lastTitle].length > 0) {
+        selectPendingMerge(lastTitle);
+        return;
+    }
+
+    const remainingTitles = Object.keys(pendingMerges);
+    if (remainingTitles.length > 0) {
+        selectPendingMerge(remainingTitles[0]);
+    } else {
+        document.getElementById('diffView').classList.add('hidden');
+        document.getElementById('arbiterControls').classList.add('hidden');
+        notify("All merges completed!");
+        document.getElementById('inputArea').value = "";
+    }
+}
+
+function notify(msg) {
+    document.getElementById('statusMessage').textContent = msg;
+}
+
+async function copyProtocol() {
+    const text = document.getElementById('protocolTemplate').value;
+    try {
+        await navigator.clipboard.writeText(text);
+        notify("Protocol copied to clipboard!");
+    } catch (err) {
+        console.error('Failed to copy:', err);
+        notify("Failed to copy protocol.");
+    }
+}
+
+// Initial Load
+window.onload = () => initDocument();
+
+/* --- New Logic for Structure & Smart Insert --- */
+
+let currentViewedSection = null;
+
+async function viewFullDocument() {
+    const name = document.getElementById('docName').value;
+    notify("Fetching full document...");
+    const res = await fetch(`${API_BASE}/structure/${name}`);
+    await initDocument(false);
+    notify("Full document loaded.");
+    currentViewedSection = null; // We are viewing full doc
+    updateEditButtonState();
+}
+
+function updateEditButtonState() {
+    const btn = document.getElementById('btnEditSection');
+    if (btn) {
+        if (currentViewedSection) {
+            btn.classList.remove('hidden');
+            btn.textContent = `Edit '${currentViewedSection}'`;
+        } else {
+            btn.classList.add('hidden');
+        }
+    }
+}
+
+function editCurrentSection() {
+    if (!currentViewedSection) return;
+
+    // Find item
+    const item = currentStructure.find(i => i.title === currentViewedSection);
+    if (!item) return;
+
+    // Load into Arbiter
+    // Treat it like a merge where Original = Current, and New = Current (so no diff effectively, or empty New?)
+    // We want to EDIT the Proposed Merge area.
+
+    // Setup partial view
+    document.getElementById('diffView').classList.remove('hidden');
+    document.getElementById('arbiterControls').classList.remove('hidden');
+
+    document.getElementById('originalContent').textContent = item.content;
+    document.getElementById('newContent').textContent = "(Manual Edit Mode)";
+
+    // Populate Selector
+    populateTargetSelector(item.title);
+
+    // Prepare Merge View
+    const mergedArea = document.getElementById('mergedContent');
+    mergedArea.value = item.content; // Pre-fill with existing
+
+    document.getElementById('diffView').dataset.targetSection = item.title;
+
+    notify(`Editing '${item.title}'...`);
+
+    // Scroll to arbiter
+    document.getElementById('panelRight').scrollTo(0, 0);
+}
+
+function findSmartInsertionIndex(title, level) {
+    console.log(`[SmartInsert] Calculating index for '${title}'...`);
+    // 1. Determine Parent Context
+    let parentTitle = "";
+    if (title.toLowerCase().startsWith("feature")) parentTitle = "Features";
+    if (title.toLowerCase().startsWith("milestone")) parentTitle = "Roadmap";
+
+    // If no specific parent logic, return -1 (append)
+    if (!parentTitle) {
+        console.log(`[SmartInsert] No parent context found.`);
+        return -1;
+    }
+
+    // 2. Find Parent Index
+    const parentIndex = currentStructure.findIndex(i => i.title === parentTitle);
+
+    if (parentIndex === -1) {
+        console.log(`[SmartInsert] Parent '${parentTitle}' not found in structure.`);
+        return -1; // Parent not found, append
+    }
+
+    // 3. Find End of Parent Block
+    // We assume the Block ends when we hit a section with Level <= Parent Level (2)
+    // The parent is at parentIndex.
+    let insertIndex = parentIndex + 1;
+    for (let i = parentIndex + 1; i < currentStructure.length; i++) {
+        if (currentStructure[i].level <= 2) {
+            console.log(`[SmartInsert] Block end found at '${currentStructure[i].title}' (Level ${currentStructure[i].level}).`);
+            break;
+        }
+        insertIndex = i + 1;
+    }
+
+    console.log(`[SmartInsert] Inserting at index ${insertIndex} (after '${currentStructure[insertIndex - 1]?.title}').`);
+    return insertIndex;
+}
+
+// Overwrite commitMerge to include Smart Insertion
+async function commitMerge() {
+    const title = document.getElementById('diffView').dataset.targetSection;
+    const content = document.getElementById('mergedContent').value;
+    const name = document.getElementById('docName').value;
+
+    notify("Committing...");
+
+    // 1. Update In-Memory Structure
+    let index = currentStructure.findIndex(i => (i.title || "(Untitled)") === title);
+
+    if (index !== -1) {
+        // Update existing
+        currentStructure[index].content = content;
+    } else {
+        // Create new section
+        const newItem = { title: title, level: 3, content: content }; // Default level 3
+
+        // Smart Insertion
+        const smartIndex = findSmartInsertionIndex(title, 3);
+        if (smartIndex !== -1) {
+            currentStructure.splice(smartIndex, 0, newItem);
+        } else {
+            currentStructure.push(newItem);
+        }
+    }
+
+    // 2. Persist to Server
+    const fullContent = currentStructure.map(i => i.content).join('\n');
+    await fetch(`${API_BASE}/commit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, content: fullContent })
+    });
+
+    // 3. Cleanup Queue
+    if (pendingMerges[title]) {
+        pendingMerges[title].shift();
+        if (pendingMerges[title].length === 0) {
+            delete pendingMerges[title];
+        }
+    }
+
+    notify("Merged successfully!");
+
+    // 4. Auto-Advance (Refreshes Tree)
+    handleAutoAdvance(title);
+
+    // Explicitly select the just-edited section so user can see it (if queue empty)
+    // If handleAutoAdvance picked something else, that's fine.
+    // But if we want to "Read what we just edited", we might want to view it?
+    // User flow: Commit -> Next Item usually. 
+    // IF user was doing Manual Delete/Edit, maybe stay?
+    // User requested: "I expect that after saving... it will redraw the tree" -> handleAutoAdvance calls renderStructure.
 }
 
 function populateTargetSelector(currentTitle) {
@@ -308,337 +703,4 @@ async function handleTargetChange(newTarget, currentTitle) {
 
     // Standard Reassign
     reassignMerge(itemToMove, currentTitle, newTarget);
-}
-
-function generateFeatureTemplate(name) {
-    return `### Feature: ${name}
-
-#### Context, Aim & Integration
-
-#### Constraints
-
-#### User Stories
-
-#### Technical Requirements
-
-#### API
-
-#### Data Layer
-
-#### Validation
-
-#### Dependencies
-
-#### Other Notes
-`;
-}
-
-function generateMilestoneTemplate(name) {
-    return `### Milestone: ${name}
-
-#### Content
-
-#### Validation
-`;
-}
-
-async function createNewSectionFromTemplate(newTitle, templateContent, item, oldTitle) {
-    // 1. Add this "New Section" to pendingMerges if not exists, but we want it to be backed by something.
-    // Actually, we can just treat it like a "New Section" discovered by process.
-    // BUT, we want the "Original" to be the Template, not empty.
-
-    // We can simulate this by pushing a fake item to currentStructure temporarily? 
-    // Or simpler: We insert it into currentStructure NOW as a placeholder, 
-    // so getRealOriginal finds it.
-
-    // Let's add it to currentStructure immediately so it persists as a "Draft Section".
-    currentStructure.push({
-        title: newTitle,
-        level: 3, // Default for features/milestones
-        content: templateContent
-    });
-
-    // Now reassign the merge to this new title
-    reassignMerge(item, oldTitle, newTitle);
-}
-
-function reassignMerge(item, oldTitle, newTitle) {
-    // 1. Remove from old
-    if (pendingMerges[oldTitle]) {
-        pendingMerges[oldTitle].shift();
-        if (pendingMerges[oldTitle].length === 0) {
-            delete pendingMerges[oldTitle];
-        }
-    }
-
-    // 2. Add to new
-    if (!pendingMerges[newTitle]) {
-        pendingMerges[newTitle] = [];
-    }
-    // We put it at the FRONT if we want to deal with it now, or BACK?
-    // Since we are "moving" the actively viewed item, we probably want to view it immediately under the new context.
-    // So put at FRONT.
-    pendingMerges[newTitle].unshift(item);
-
-    // 3. Update Item's internal section tag (for consistency, though less used)
-    item.section = newTitle;
-
-    // 4. Refresh UI
-    renderStructure();
-
-    // 5. Select it in its new home
-    selectPendingMerge(newTitle);
-
-    notify(`Moved merge to '${newTitle}'.`);
-}
-
-
-async function commitMerge() {
-    const title = document.getElementById('diffView').dataset.targetSection;
-    const content = document.getElementById('mergedContent').value;
-    const name = document.getElementById('docName').value;
-
-    notify("Committing...");
-
-    // 1. Update In-Memory Structure
-    let item = currentStructure.find(i => (i.title || "(Untitled)") === title);
-    if (!item) {
-        // Create new section stub if it doesn't exist
-        item = { title: title, level: 2, content: "" };
-        currentStructure.push(item);
-    }
-    item.content = content;
-
-    // 2. Persist to Server
-    const fullContent = currentStructure.map(i => i.content).join('\n');
-    await fetch(`${API_BASE}/commit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, content: fullContent })
-    });
-
-    // 3. Cleanup Queue
-    if (pendingMerges[title]) {
-        pendingMerges[title].shift();
-        if (pendingMerges[title].length === 0) {
-            delete pendingMerges[title];
-        }
-    }
-
-    notify("Merged successfully!");
-
-    // 4. Auto-Advance
-    handleAutoAdvance(title);
-}
-
-function discardMerge() {
-    const title = document.getElementById('diffView').dataset.targetSection;
-
-    notify("Discarded.");
-
-    // 1. Cleanup Queue
-    if (pendingMerges[title]) {
-        pendingMerges[title].shift();
-        if (pendingMerges[title].length === 0) {
-            delete pendingMerges[title];
-        }
-    }
-
-    // 2. Auto-Advance
-    handleAutoAdvance(title);
-}
-
-function handleAutoAdvance(lastTitle) {
-    renderStructure();
-
-    if (pendingMerges[lastTitle] && pendingMerges[lastTitle].length > 0) {
-        selectPendingMerge(lastTitle);
-        return;
-    }
-
-    const remainingTitles = Object.keys(pendingMerges);
-    if (remainingTitles.length > 0) {
-        selectPendingMerge(remainingTitles[0]);
-    } else {
-        document.getElementById('diffView').classList.add('hidden');
-        document.getElementById('arbiterControls').classList.add('hidden');
-        notify("All merges completed!");
-        document.getElementById('inputArea').value = "";
-    }
-}
-
-function notify(msg) {
-    document.getElementById('statusMessage').textContent = msg;
-}
-
-async function copyProtocol() {
-    const text = document.getElementById('protocolTemplate').value;
-    try {
-        await navigator.clipboard.writeText(text);
-        notify("Protocol copied to clipboard!");
-    } catch (err) {
-        console.error('Failed to copy:', err);
-        notify("Failed to copy protocol.");
-    }
-}
-
-// Initial Load
-window.onload = () => initDocument();
-
-/* --- New Logic for Structure & Smart Insert --- */
-
-let currentViewedSection = null;
-
-async function viewFullDocument() {
-    const name = document.getElementById('docName').value;
-    notify("Fetching full document...");
-    const res = await fetch(`${API_BASE}/structure/${name}`);
-    // Actually structure endpoint returns structure, we want raw text?
-    // We can use initDocument(false) which loads it? 
-    // Or just a specific endpoint. 
-    // Let's use get_document logic (which is what init does roughly but init parses).
-    // Let's rely on re-fetching the doc via a simple GET if possible, or just Init.
-    // initDocument(false) does: fetch /init -> msg, content.
-    // content IS the full doc.
-    await initDocument(false);
-    notify("Full document loaded.");
-    currentViewedSection = null; // We are viewing full doc
-    updateEditButtonState();
-}
-
-function updateEditButtonState() {
-    const btn = document.getElementById('btnEditSection');
-    if (btn) {
-        if (currentViewedSection) {
-            btn.classList.remove('hidden');
-            btn.textContent = `Edit '${currentViewedSection}'`;
-        } else {
-            btn.classList.add('hidden');
-        }
-    }
-}
-
-function editCurrentSection() {
-    if (!currentViewedSection) return;
-
-    // Find item
-    const item = currentStructure.find(i => i.title === currentViewedSection);
-    if (!item) return;
-
-    // Load into Arbiter
-    // Treat it like a merge where Original = Current, and New = Current (so no diff effectively, or empty New?)
-    // We want to EDIT the Proposed Merge area.
-
-    // Setup partial view
-    document.getElementById('diffView').classList.remove('hidden');
-    document.getElementById('arbiterControls').classList.remove('hidden');
-
-    document.getElementById('originalContent').textContent = item.content;
-    document.getElementById('newContent').textContent = "(Manual Edit Mode)";
-
-    // Populate Selector
-    populateTargetSelector(item.title);
-
-    // Prepare Merge View
-    const mergedArea = document.getElementById('mergedContent');
-    mergedArea.value = item.content; // Pre-fill with existing
-
-    document.getElementById('diffView').dataset.targetSection = item.title;
-
-    notify(`Editing '${item.title}'...`);
-
-    // Scroll to arbiter
-    document.getElementById('panelRight').scrollTo(0, 0);
-}
-
-function findSmartInsertionIndex(title, level) {
-    // 1. Determine Parent Context
-    let parentTitle = "";
-    if (title.toLowerCase().startsWith("feature")) parentTitle = "Features";
-    if (title.toLowerCase().startsWith("milestone")) parentTitle = "Roadmap";
-
-    // If no specific parent logic, return -1 (append)
-    if (!parentTitle) return -1;
-
-    // 2. Find Parent Index
-    const parentIndex = currentStructure.findIndex(i => i.title === parentTitle);
-    if (parentIndex === -1) return -1; // Parent not found, append
-
-    // 3. Find End of Parent Block
-    // We assume the Block ends when we hit a section with Level <= Parent Level (2)
-    // The parent is at parentIndex.
-    let insertIndex = parentIndex + 1;
-    for (let i = parentIndex + 1; i < currentStructure.length; i++) {
-        if (currentStructure[i].level <= 2) {
-            break;
-        }
-        insertIndex = i + 1;
-    }
-
-    return insertIndex;
-}
-
-// Overwrite commitMerge to include Smart Insertion
-async function commitMerge() {
-    const title = document.getElementById('diffView').dataset.targetSection;
-    const content = document.getElementById('mergedContent').value;
-    const name = document.getElementById('docName').value;
-
-    notify("Committing...");
-
-    // 1. Update In-Memory Structure
-    let index = currentStructure.findIndex(i => (i.title || "(Untitled)") === title);
-
-    if (index !== -1) {
-        // Update existing
-        currentStructure[index].content = content;
-    } else {
-        // Create new section
-        const newItem = { title: title, level: 3, content: content }; // Default level 3
-
-        // Smart Insertion
-        const smartIndex = findSmartInsertionIndex(title, 3);
-        if (smartIndex !== -1) {
-            currentStructure.splice(smartIndex, 0, newItem);
-        } else {
-            currentStructure.push(newItem);
-        }
-    }
-
-    // 2. Persist to Server
-    // Reconstruct full doc
-    // We need to be careful: currentStructure items usually contain headers inside 'content' or separate?
-    // looking at backend: `current_section = {"title": title, "level": level, "content": [line]}` includes header.
-    // So `content` is the full string including `### Title`.
-    // Wait, if `content` includes Header, then `process_text` regex logic might be duplicating it if we merge purely content?
-    // Server `get_structure` includes the header line in `content`.
-    // UI `generateFeatureTemplate` includes `### Feature: ...`.
-    // So 'content' is full block. Safe.
-
-    const fullContent = currentStructure.map(i => i.content).join('\n');
-    await fetch(`${API_BASE}/commit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, content: fullContent })
-    });
-
-    // 3. Cleanup Queue
-    if (pendingMerges[title]) {
-        pendingMerges[title].shift();
-        if (pendingMerges[title].length === 0) {
-            delete pendingMerges[title];
-        }
-    }
-
-    notify("Merged successfully!");
-
-    // 4. Auto-Advance (Refreshes Tree)
-    handleAutoAdvance(title);
-
-    // Explicitly select the just-edited section so user can see it (if queue empty)
-    // If handleAutoAdvance picked something else, that's fine.
-    // But if we want to "Read what we just edited", we might want to view it?
-    // User flow: Commit -> Next Item usually. 
-    // IF user was doing Manual Delete/Edit, maybe stay?
-    // User requested: "I expect that after saving... it will redraw the tree" -> handleAutoAdvance calls renderStructure.
 }
