@@ -45,7 +45,7 @@ This will be a lightweight single-page application (SPA) backed by a simple Pyth
 
 #### **A. User Interface (The Dashboard)**
 
-1. **"The Protocol" Box:** A read-only text area containing your **Standardized System Prompt** (with `<<<SPEC_START>>>` rules) so you can quickly copy it into Gemini/ChatGPT before starting a session. See `spec_protocol.md` for details.
+1. **"The Protocol" Box:** A read-only text area containing your **Standardized System Prompt** (with `<<<SPEC_START>>>` / `<<<SPEC_END>>>` rules) so you can quickly copy it into Gemini/ChatGPT before starting a session. See `spec_protocol.md` for details.
 2. **"Input" Zone:** A text box to paste the raw "Discussion Minutes" (the LLM's reply).
 3. **"Structure" View:** A sidebar showing the current headers of the Master Document (e.g., `1. Auth`, `2. Database`).
 4. **"The Arbiter" (Review Zone):** The core interactive area.
@@ -86,3 +86,79 @@ You will persist the state using two simple files in a `./data` folder on the se
 
 We use uv to manage our Python environment.
 
+---
+
+### 5. Version Control System
+
+The application includes a document-level version control system inspired by Git semantics.
+
+#### **A. Storage Layout**
+
+```
+data/
+├── <name>.md             # Current document (The Truth)
+├── <name>_vectors.json   # Vector embeddings cache
+├── <name>_vc.json        # Version control metadata
+└── _history/
+    └── <name>/
+        ├── v1.md         # Snapshot at version 1
+        ├── v2.md         # Snapshot at version 2
+        └── ...
+```
+
+#### **B. Version Control Metadata (`_vc.json`)**
+
+```json
+{
+  "current_version": 3,
+  "created_at": "2026-02-09T09:00:00Z",
+  "versions": [
+    {"version": 1, "timestamp": "...", "comment": "Initial document creation", "trigger": "init"},
+    {"version": 2, "timestamp": "...", "comment": "Updated: Authentication", "trigger": "section_merge", "sections_changed": ["Feature: Authentication"]}
+  ],
+  "section_history": {
+    "Feature: Authentication": [{"version": 2, "change": "Added login rate limiting"}]
+  }
+}
+```
+
+#### **C. Version Triggers**
+
+| Trigger | When It Fires | Description |
+|---------|---------------|-------------|
+| `init` | Document creation | Version 1 created |
+| `merge_complete` | User validates all merges | Full document version bump |
+| `manual_edit` | Direct save with changes | Ad-hoc edit outside merge flow |
+| `section_merge` | Section-level commit | Per-section tracking |
+| `rollback` | User rolls back to previous version | Creates new version with old content |
+
+#### **D. Rollback Behavior**
+
+Rollback does NOT decrement the version. It creates a **new version** containing the old content. This preserves the full audit trail.
+
+Example: If you rollback from v5 to v2, you get v6 (with v2's content).
+
+#### **E. Download Modes**
+
+| Mode | Endpoint | Content |
+|------|----------|---------|
+| Master | `GET /api/download/{name}` | Clean `.md` file |
+| Annotated | `GET /api/download/{name}?annotated=true` | Includes Version History section and per-section annotations |
+
+#### **F. API Endpoints**
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/versions/{name}` | GET | Get version history |
+| `/api/download/{name}?annotated=bool` | GET | Download document |
+| `/api/validate-merge` | POST | Complete merge and bump version |
+| `/api/rollback` | POST | Rollback to previous version |
+
+---
+
+### 6. Future: Git-Based Version Control
+
+A future iteration may replace the file-based `_history/` system with a git repository per document, enabling:
+- Native `git log`, `git diff`, `git checkout`
+- Branch support for experimental edits
+- Remote backup via `git push`

@@ -1,0 +1,27 @@
+<<<SPEC_START>>>
+
+* Target-Section: Feature: Notification System
+* Change-Summary: Final notification update with push notifications and real-time processing.
+
+### Feature: Notification System
+
+#### Context, Aim & Integration
+
+The notification system handles all user communications including emails, SMS, push notifications, and in-app messages.
+
+#### Technical Requirements
+
+- Email delivery via SendGrid API
+- SMS delivery via Twilio
+- Push notifications via Firebase Cloud Messaging (new)
+- Retry logic: 5 attempts with exponential backoff
+- Template engine for all notification types
+- Real-time processing for critical alerts (new)
+
+#### Constraints
+
+- Maximum 100 emails per user per day
+- Maximum 20 SMS per user per day
+- Maximum 50 push notifications per user per day (new)
+- Queue processing: real-time for priority, every 1 minute for standard (updated)
+<<<SPEC_END>>>

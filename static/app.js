@@ -13,14 +13,17 @@ async function initDocument(reset = false) {
     const data = await res.json();
     notify(data.message);
     document.getElementById('docPreview').textContent = data.content;
-    document.getElementById('downloadLink').href = `${API_BASE}/spec/${name}`;
 
     await loadStructure();
+    await loadVersions();
+    updateDownloadLink();
 }
 
 let currentStructure = [];
 let pendingMerges = {}; // Map title -> Array<Match>
 let mergeCache = {}; // Map key -> Promise<MergeResult>
+let mergeInProgress = false; // Track if merge workflow is active
+let showVersionInfo = false; // Track annotated display mode
 
 async function loadStructure() {
     const name = document.getElementById('docName').value;
@@ -91,6 +94,13 @@ async function processInput() {
     const text = document.getElementById('inputArea').value;
     if (!text) { notify("Please paste some text first."); return; }
 
+    // Block if merge is in progress
+    if (mergeInProgress) {
+        notify("⚠️ Cannot process new input while merges are in progress. Complete or discard pending merges first.");
+        showMergeBlockingIndicator();
+        return;
+    }
+
     notify("Processing... Analyzing Protocol...");
 
     const name = document.getElementById('docName').value;
@@ -117,6 +127,10 @@ async function processInput() {
         }
         pendingMerges[m.section].push(m);
     });
+
+    // Set merge in progress flag
+    mergeInProgress = true;
+    showMergeBlockingIndicator();
 
     // Trigger background pre-merge for the FIRST item of each section
     Object.keys(pendingMerges).forEach(title => {
@@ -445,10 +459,14 @@ function handleAutoAdvance(lastTitle) {
     if (remainingTitles.length > 0) {
         selectPendingMerge(remainingTitles[0]);
     } else {
+        // All merges completed - show commit modal
         document.getElementById('diffView').classList.add('hidden');
         document.getElementById('arbiterControls').classList.add('hidden');
-        notify("All merges completed!");
+        notify("All merges completed! Please add a commit message.");
         document.getElementById('inputArea').value = "";
+
+        // Show commit modal
+        showCommitModal();
     }
 }
 
@@ -703,4 +721,215 @@ async function handleTargetChange(newTarget, currentTitle) {
 
     // Standard Reassign
     reassignMerge(itemToMove, currentTitle, newTarget);
+}
+
+/* ========================================
+   VERSION CONTROL FUNCTIONS
+   ======================================== */
+
+async function loadVersions() {
+    const name = document.getElementById('docName').value;
+    try {
+        const res = await fetch(`${API_BASE}/versions/${name}`);
+        if (!res.ok) return;
+
+        const data = await res.json();
+        const select = document.getElementById('versionSelect');
+        select.innerHTML = '';
+
+        // Add current option
+        const currentOpt = document.createElement('option');
+        currentOpt.value = 'current';
+        currentOpt.textContent = `Current (v${data.current_version})`;
+        currentOpt.selected = true;
+        select.appendChild(currentOpt);
+
+        // Add historical versions in reverse order (newest first)
+        const versions = data.versions || [];
+        for (let i = versions.length - 1; i >= 0; i--) {
+            const v = versions[i];
+            if (v.version === data.current_version) continue; // Skip current
+
+            const opt = document.createElement('option');
+            opt.value = v.version;
+            opt.textContent = `v${v.version} - ${v.comment.substring(0, 30)}${v.comment.length > 30 ? '...' : ''}`;
+            select.appendChild(opt);
+        }
+    } catch (e) {
+        console.error('Failed to load versions:', e);
+    }
+}
+
+async function switchToVersion() {
+    const select = document.getElementById('versionSelect');
+    const selectedValue = select.value;
+
+    if (selectedValue === 'current') {
+        // Just reload the current document
+        await initDocument(false);
+        return;
+    }
+
+    const version = parseInt(selectedValue);
+    const name = document.getElementById('docName').value;
+
+    if (!confirm(`Rollback to version ${version}? This will create a new version with the old content.`)) {
+        select.value = 'current'; // Reset selection
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/rollback`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, version })
+        });
+
+        const data = await res.json();
+        notify(`Rolled back to v${version}. Now at v${data.new_version}.`);
+
+        // Reload document and versions
+        await initDocument(false);
+    } catch (e) {
+        console.error('Rollback failed:', e);
+        notify('Rollback failed.');
+        select.value = 'current';
+    }
+}
+
+async function toggleVersionDisplay() {
+    const checkbox = document.getElementById('showVersions');
+    showVersionInfo = checkbox.checked;
+
+    const name = document.getElementById('docName').value;
+
+    try {
+        const res = await fetch(`${API_BASE}/download/${name}?annotated=${showVersionInfo}`);
+        const data = await res.json();
+
+        document.getElementById('docPreview').textContent = data.content;
+        updateDownloadLink();
+
+        notify(showVersionInfo ? 'Showing version annotations' : 'Showing clean document');
+    } catch (e) {
+        console.error('Failed to toggle version display:', e);
+    }
+}
+
+function updateDownloadLink() {
+    const name = document.getElementById('docName').value;
+    const link = document.getElementById('downloadLink');
+    link.href = `${API_BASE}/download/${name}?annotated=${showVersionInfo}`;
+}
+
+function showCommitModal() {
+    document.getElementById('commitModal').classList.remove('hidden');
+    document.getElementById('commitMessage').value = '';
+    document.getElementById('commitMessage').focus();
+}
+
+function closeCommitModal() {
+    document.getElementById('commitModal').classList.add('hidden');
+    hideMergeBlockingIndicator();
+    mergeInProgress = false;
+}
+
+async function submitCommitMessage() {
+    const message = document.getElementById('commitMessage').value.trim();
+    const name = document.getElementById('docName').value;
+
+    if (!message) {
+        alert('Please enter a commit message.');
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/validate-merge`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, comment: message })
+        });
+
+        const data = await res.json();
+        notify(`${data.message} Now at v${data.version}.`);
+
+        // Close modal and reset state
+        closeCommitModal();
+
+        // Reload versions
+        await loadVersions();
+
+    } catch (e) {
+        console.error('Validation failed:', e);
+        notify('Failed to validate merge.');
+    }
+}
+
+function showMergeBlockingIndicator() {
+    document.getElementById('mergeBlockingIndicator').classList.remove('hidden');
+}
+
+function hideMergeBlockingIndicator() {
+    document.getElementById('mergeBlockingIndicator').classList.add('hidden');
+}
+
+// Copy to clipboard function
+async function copyToClipboard(elementId) {
+    const element = document.getElementById(elementId);
+    let text = '';
+
+    // Handle both textarea and div elements
+    if (element.tagName === 'TEXTAREA') {
+        text = element.value;
+    } else {
+        text = element.textContent;
+    }
+
+    try {
+        await navigator.clipboard.writeText(text);
+        notify('Copied to clipboard!');
+    } catch (err) {
+        console.error('Failed to copy:', err);
+        notify('Failed to copy to clipboard.');
+    }
+}
+
+// Add origin content to merge result
+async function addOriginToMerge() {
+    // Stop any ongoing generation
+    if (currentTaskId) {
+        await stopGeneration();
+    }
+
+    const originalContent = document.getElementById('originalContent').textContent;
+    const mergedArea = document.getElementById('mergedContent');
+
+    // Append to existing content if any, otherwise replace
+    if (mergedArea.value && mergedArea.value.trim() !== '' && !mergedArea.value.includes('Error:') && mergedArea.value !== 'Generation stopped by user.') {
+        mergedArea.value += '\n\n' + originalContent;
+    } else {
+        mergedArea.value = originalContent;
+    }
+
+    notify('Original content added to merge result.');
+}
+
+// Add new input content to merge result
+async function addNewInputToMerge() {
+    // Stop any ongoing generation
+    if (currentTaskId) {
+        await stopGeneration();
+    }
+
+    const newContent = document.getElementById('newContent').textContent;
+    const mergedArea = document.getElementById('mergedContent');
+
+    // Append to existing content if any, otherwise replace
+    if (mergedArea.value && mergedArea.value.trim() !== '' && !mergedArea.value.includes('Error:') && mergedArea.value !== 'Generation stopped by user.') {
+        mergedArea.value += '\n\n' + newContent;
+    } else {
+        mergedArea.value = newContent;
+    }
+
+    notify('New input content added to merge result.');
 }

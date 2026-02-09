@@ -13,8 +13,15 @@
         <h1>Specer</h1>
         <div class="doc-controls">
             <input type="text" id="docName" placeholder="Document Name" value="default">
+            <select id="versionSelect" title="Switch Version" onchange="switchToVersion()">
+                <option value="current">Current (v1)</option>
+            </select>
             <button onclick="initDocument(false)">Load</button>
             <button onclick="initDocument(true)" class="danger">Reset</button>
+            <label class="checkbox-label">
+                <input type="checkbox" id="showVersions" onchange="toggleVersionDisplay()">
+                Show Version Info
+            </label>
             <button onclick="viewFullDocument()" class="secondary">View Full Doc</button>
             <a id="downloadLink" href="#" target="_blank" class="button">Download md</a>
         </div>
@@ -133,16 +140,35 @@ To prevent brute-force attacks, the login endpoint must enforce a rate limit of 
                 <div class="diff-container">
                     <div class="diff-row top">
                         <div class="diff-col half">
-                            <h3>Original (Current in Doc)</h3>
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <h3>Original (Current in Doc)</h3>
+                                <button onclick="copyToClipboard('originalContent')" class="copy-btn"
+                                    title="Copy to clipboard">📋</button>
+                            </div>
                             <div id="originalContent" class="preview-box"></div>
                         </div>
                         <div class="diff-col half">
-                            <h3>Input Update</h3>
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <h3>Input Update</h3>
+                                <button onclick="copyToClipboard('newContent')" class="copy-btn"
+                                    title="Copy to clipboard">📋</button>
+                            </div>
                             <div id="newContent" class="preview-box"></div>
                         </div>
                     </div>
                     <div class="diff-row bottom">
-                        <h3>Proposed Merge</h3>
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                            <h3 style="margin: 0;">Proposed Merge</h3>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button onclick="addOriginToMerge()" class="secondary"
+                                    title="Add original content to merge result">Add Origin</button>
+                                <button onclick="addNewInputToMerge()" class="secondary"
+                                    title="Add new input to merge result">Add New Input</button>
+                                <button onclick="copyToClipboard('mergedContent')" class="copy-btn"
+                                    title="Copy to clipboard">📋</button>
+                            </div>
+                        </div>
                         <div class="merge-wrapper">
                             <textarea id="mergedContent" class="preview-box editable"></textarea>
                             <div id="mergeSpinner" class="spinner hidden"></div>
@@ -166,7 +192,26 @@ To prevent brute-force attacks, the login endpoint must enforce a rate limit of 
                     </div>
     </main>
 
-    <script src="app.js?v=7"></script>
+    <!-- Commit Message Modal -->
+    <div id="commitModal" class="modal hidden">
+        <div class="modal-content">
+            <h3>Complete Merge Validation</h3>
+            <p>All pending merges have been processed. Add a commit message:</p>
+            <textarea id="commitMessage" placeholder="e.g., Added authentication and database features"
+                rows="3"></textarea>
+            <div class="modal-actions">
+                <button onclick="submitCommitMessage()" class="success">Validate & Commit</button>
+                <button onclick="closeCommitModal()" class="secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Merge Blocking Indicator -->
+    <div id="mergeBlockingIndicator" class="merge-blocking-indicator hidden">
+        <strong>⚠️ Merge in Progress</strong> - Complete or discard all pending merges before processing new input.
+    </div>
+
+    <script src="app.js?v=8"></script>
 </body>
 
 </html>

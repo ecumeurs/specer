@@ -1,0 +1,22 @@
+<<<SPEC_START>>>
+
+* Target-Section: Feature: Notification System
+* Change-Summary: Added initial notification system with email support.
+
+### Feature: Notification System
+
+#### Context, Aim & Integration
+
+The notification system handles all user communications including emails and in-app messages.
+
+#### Technical Requirements
+
+- Email delivery via SMTP
+- Retry logic: 3 attempts with exponential backoff
+- Template engine for email formatting
+
+#### Constraints
+
+- Maximum 100 emails per user per day
+- Email queue processing: every 5 minutes
+<<<SPEC_END>>>

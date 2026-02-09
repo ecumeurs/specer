@@ -1,0 +1,31 @@
+<<<SPEC_START>>>
+
+* Target-Section: Feature: Database Layer
+* Change-Summary: Added new database feature with schema requirements.
+
+### Feature: Database Layer
+
+#### Context, Aim & Integration
+
+The database layer provides persistent storage for all application entities.
+
+#### Technical Requirements
+
+- PostgreSQL 15+ required
+- Connection pooling via PgBouncer
+- Automatic migrations on startup
+
+#### Data Layer
+
+| Entity | Table | Primary Key |
+|--------|-------|-------------|
+| User | users | uuid |
+| Session | sessions | uuid |
+| Document | documents | uuid |
+
+#### Constraints
+
+- All timestamps in UTC
+- Soft deletes for audit trail
+- Maximum 100 connections per pool
+<<<SPEC_END>>>

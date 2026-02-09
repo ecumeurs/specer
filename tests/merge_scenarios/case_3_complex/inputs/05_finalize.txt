@@ -1,0 +1,52 @@
+<<<SPEC_START>>>
+
+* Target-Section: Milestone: MVP Release
+* Change-Summary: Updated MVP milestone to include real-time analytics.
+
+### Milestone: MVP Release
+
+#### Content
+
+The MVP release includes:
+- User authentication (basic login/register)
+- Analytics engine (event tracking + real-time dashboard)
+- API gateway (health + auth endpoints)
+- Basic notification system (email only)
+
+#### Validation
+
+- 500 beta users onboarded (updated from 100)
+- 99.5% uptime over 2 weeks (updated)
+- Analytics real-time pipeline verified
+- Email deliverability > 95%
+<<<SPEC_END>>>
+
+<<<SPEC_START>>>
+
+* Target-Section: Feature: Analytics Engine
+* Change-Summary: Final analytics update with A/B testing framework.
+
+### Feature: Analytics Engine
+
+#### Context, Aim & Integration
+
+The analytics engine collects and processes user behavior data for real-time insights, predictive analytics, and A/B testing.
+
+#### Technical Requirements
+
+- Event tracking via JavaScript SDK
+- Data warehouse: ClickHouse
+- Batch processing: hourly aggregations
+- Real-time streaming via Apache Kafka
+- Dashboard UI using Grafana
+- ML pipeline for churn prediction
+- A/B testing framework with statistical significance calculation (new)
+
+#### Constraints
+
+- Data retention: 365 days
+- PII anonymization required
+- Real-time latency: < 5 seconds
+- ML model refresh: weekly
+- A/B test minimum sample: 1000 users per variant (new)
+<<<SPEC_END>>>

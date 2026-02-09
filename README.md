@@ -25,8 +25,36 @@ A "Semantic Git" for AI-assisted documentation. Merges updates from LLM chats in
 
 - **Protocol Parsing**: Automatically extracts "Spec Updates" from chat logs.
 - **Document Management**: Create and Reset named documents.
-- **Semantic Merging** (Coming Soon): Uses AI to find the right place for your updates.
+- **Semantic Merging**: Uses AI to find the right place for your updates.
+- **Version Control**: Track document history with rollback capability.
+  - Version increments on merge completion or manual edits
+  - Download clean or annotated (with version history) documents
+  - Rollback to any previous version
+
+## API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/init` | POST | Initialize or reset a document |
+| `/api/process` | POST | Parse protocol blocks from LLM input |
+| `/api/diff` | POST | Start background merge task |
+| `/api/commit` | POST | Save document (intermediate) |
+| `/api/validate-merge` | POST | Complete merge and bump version |
+| `/api/versions/{name}` | GET | Get version history |
+| `/api/download/{name}` | GET | Download document (?annotated=true for version info) |
+| `/api/rollback` | POST | Rollback to previous version |
 
 ## Development
 
 The backend code is mounted as a volume, so changes in `./server` will auto-reload.
+
+### Running Tests
+
+```bash
+# Unit tests (no server needed)
+uv run pytest tests/test_version_control.py -v
+
+# E2E tests (requires running server)
+docker compose up -d
+uv run pytest tests/test_merge_e2e.py -v
+```

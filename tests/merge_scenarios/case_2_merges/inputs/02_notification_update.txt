@@ -1,0 +1,24 @@
+<<<SPEC_START>>>
+
+* Target-Section: Feature: Notification System
+* Change-Summary: Updated notification system to add SMS support and change retry logic.
+
+### Feature: Notification System
+
+#### Context, Aim & Integration
+
+The notification system handles all user communications including emails, SMS, and in-app messages.
+
+#### Technical Requirements
+
+- Email delivery via SendGrid API (changed from SMTP)
+- SMS delivery via Twilio
+- Retry logic: 5 attempts with exponential backoff (updated from 3)
+- Template engine for email and SMS formatting
+
+#### Constraints
+
+- Maximum 100 emails per user per day
+- Maximum 20 SMS per user per day (new)
+- Queue processing: every 2 minutes (updated from 5)
+<<<SPEC_END>>>

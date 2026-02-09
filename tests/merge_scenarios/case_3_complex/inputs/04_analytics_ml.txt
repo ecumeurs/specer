@@ -1,0 +1,27 @@
+<<<SPEC_START>>>
+
+* Target-Section: Feature: Analytics Engine
+* Change-Summary: Updated data retention and added ML pipeline for predictions.
+
+### Feature: Analytics Engine
+
+#### Context, Aim & Integration
+
+The analytics engine collects and processes user behavior data for real-time insights and predictive analytics.
+
+#### Technical Requirements
+
+- Event tracking via JavaScript SDK
+- Data warehouse: ClickHouse
+- Batch processing: hourly aggregations
+- Real-time streaming via Apache Kafka
+- Dashboard UI using Grafana
+- ML pipeline for churn prediction (new)
+
+#### Constraints
+
+- Data retention: 365 days (updated from 90)
+- PII anonymization required
+- Real-time latency: < 5 seconds
+- ML model refresh: weekly (new)
+<<<SPEC_END>>>

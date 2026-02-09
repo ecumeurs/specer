@@ -57,9 +57,116 @@ async def get_structure(name: str):
 @app.post("/api/commit")
 async def commit_doc(req: CommitRequest):
     logger.info(f"COMMIT Request: name='{req.name}', size={len(req.content)} chars")
-    manager.save_document(req.name, req.content)
+    # Use simple save (no version bump) for intermediate merge commits
+    manager.save_document_simple(req.name, req.content)
     logger.info(f"COMMIT Success: Document '{req.name}' saved.")
     return {"message": "Document saved successfully."}
+
+# -------------------------------------------------------------------------
+# Version Control Endpoints
+# -------------------------------------------------------------------------
+
+class ValidateMergeRequest(BaseModel):
+    """Request to validate all merges are complete and bump version."""
+    name: str
+    comment: Optional[str] = None
+
+class RollbackRequest(BaseModel):
+    """Request to rollback to a specific version."""
+    name: str
+    version: int
+
+@app.get("/api/versions/{name}")
+async def get_versions(name: str):
+    """
+    Get version history for a document.
+    
+    Returns list of all versions with metadata.
+    """
+    logger.info(f"VERSIONS Request: name='{name}'")
+    versions = manager.list_versions(name)
+    vc_data = manager.get_vc_data(name)
+    return {
+        "current_version": vc_data.get("current_version", 0),
+        "versions": versions
+    }
+
+@app.get("/api/download/{name}")
+async def download_document(name: str, annotated: bool = False):
+    """
+    Download document content.
+    
+    Args:
+        name: Document name
+        annotated: If True, include version annotations in output
+        
+    Returns:
+        Document content (plain or annotated)
+    """
+    logger.info(f"DOWNLOAD Request: name='{name}', annotated={annotated}")
+    
+    if annotated:
+        content = manager.get_document_annotated(name)
+    else:
+        content = manager.get_document(name)
+    
+    if not content:
+        logger.warning(f"Document '{name}' not found.")
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    vc_data = manager.get_vc_data(name)
+    return {
+        "content": content,
+        "version": vc_data.get("current_version", 1),
+        "annotated": annotated
+    }
+
+@app.post("/api/validate-merge")
+async def validate_merge_complete(req: ValidateMergeRequest):
+    """
+    Validate that all merges are complete and increment version.
+    
+    Call this when user confirms all pending merges have been processed.
+    This triggers a version bump with 'merge_complete' trigger.
+    """
+    logger.info(f"VALIDATE-MERGE Request: name='{req.name}'")
+    
+    content = manager.get_document(req.name)
+    if not content:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    manager.complete_merge_validation(req.name, req.comment)
+    vc_data = manager.get_vc_data(req.name)
+    
+    logger.info(f"VALIDATE-MERGE Success: '{req.name}' now at version {vc_data['current_version']}")
+    return {
+        "message": "Merge validated and version incremented.",
+        "version": vc_data["current_version"]
+    }
+
+@app.post("/api/rollback")
+async def rollback_document(req: RollbackRequest):
+    """
+    Rollback document to a previous version.
+    
+    Creates a new version entry with 'rollback' trigger.
+    """
+    logger.info(f"ROLLBACK Request: name='{req.name}', target_version={req.version}")
+    
+    success = manager.rollback_to_version(req.name, req.version)
+    
+    if not success:
+        logger.warning(f"ROLLBACK Failed: Version {req.version} not found for '{req.name}'")
+        raise HTTPException(status_code=404, detail=f"Version {req.version} not found")
+    
+    vc_data = manager.get_vc_data(req.name)
+    logger.info(f"ROLLBACK Success: '{req.name}' rolled back to v{req.version}, now at v{vc_data['current_version']}")
+    
+    return {
+        "message": f"Document rolled back to version {req.version}.",
+        "new_version": vc_data["current_version"],
+        "content": manager.get_document(req.name)
+    }
 
 # Stub Endpoints for Phase 1
 

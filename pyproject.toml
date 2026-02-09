@@ -10,3 +10,8 @@ dependencies = [
     "httpx",
     "numpy",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]

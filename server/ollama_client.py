@@ -61,7 +61,19 @@ INSTRUCTIONS:
                 res.raise_for_status()
                 data = res.json()
                 return data["response"]
+        except httpx.TimeoutException as e:
+            error_msg = f"Timeout after 60s: {type(e).__name__}"
+            print(f"[Ollama] {error_msg}")
+            return f"Error merging content: {error_msg}"
+        except httpx.HTTPStatusError as e:
+            error_msg = f"HTTP {e.response.status_code}: {e.response.text[:100]}"
+            print(f"[Ollama] {error_msg}")
+            return f"Error merging content: {error_msg}"
         except Exception as e:
-            return f"Error merging content: {e}"
+            error_msg = f"{type(e).__name__}: {str(e) or 'Unknown error'}"
+            print(f"[Ollama] Unexpected error: {error_msg}")
+            import traceback
+            traceback.print_exc()
+            return f"Error merging content: {error_msg}"
 
 ollama = OllamaClient()
