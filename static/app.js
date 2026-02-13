@@ -208,6 +208,36 @@ function mergeIntoTemplate(template, newContent) {
     return mergedParts.join('\n').trim();
 }
 
+// Helper: Get section content including all child subsections
+function getSectionWithChildren(sectionTitle) {
+    // Find the section index
+    const sectionIndex = currentStructure.findIndex(i => i.title === sectionTitle);
+    if (sectionIndex === -1) {
+        return null;
+    }
+
+    const section = currentStructure[sectionIndex];
+    const sectionLevel = section.level;
+
+    // Gather this section and all children
+    let combinedContent = section.content;
+
+    // Look ahead for child sections
+    for (let i = sectionIndex + 1; i < currentStructure.length; i++) {
+        const nextSection = currentStructure[i];
+
+        // Stop if we hit a section at the same or lower level
+        if (nextSection.level <= sectionLevel) {
+            break;
+        }
+
+        // This is a child section, add it
+        combinedContent += '\n' + nextSection.content;
+    }
+
+    return combinedContent;
+}
+
 function renderStructure() {
     const list = document.getElementById('structureList');
     list.innerHTML = "";
@@ -247,7 +277,9 @@ function renderStructure() {
                 selectPendingMerge(item.title);
                 currentViewedSection = null; // Merging mode, not reading mode
             } else {
-                document.getElementById('docPreview').textContent = item.content;
+                // Use hierarchical content gathering to show section with all children
+                const content = getSectionWithChildren(item.title);
+                document.getElementById('docPreview').textContent = content || item.content;
                 notify(`Viewing section: ${item.title}`);
                 document.getElementById('diffView').classList.add('hidden');
                 document.getElementById('arbiterControls').classList.add('hidden');
