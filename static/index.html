@@ -179,17 +179,20 @@ To prevent brute-force attacks, the login endpoint must enforce a rate limit of 
                                     disabled>Stop</button>
                             </div>
                         </div>
-
-                        <div id="statusMessage"></div>
-
-                        <div
-                            style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem;">
-                            <h2>Current Document Preview</h2>
-                            <button id="btnEditSection" onclick="editCurrentSection()" class="primary hidden">Edit
-                                Section</button>
-                        </div>
-                        <pre id="docPreview"></pre>
                     </div>
+                </div>
+            </div>
+
+            <!-- Always-visible elements: status and document preview -->
+            <div id="statusMessage"></div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem;">
+                <h2>Current Document Preview</h2>
+                <button id="btnEditSection" onclick="editCurrentSection()" class="primary hidden">Edit
+                    Section</button>
+            </div>
+            <pre id="docPreview"></pre>
+        </div>
     </main>
 
     <!-- Commit Message Modal -->
@@ -211,7 +214,7 @@ To prevent brute-force attacks, the login endpoint must enforce a rate limit of 
         <strong>⚠️ Merge in Progress</strong> - Complete or discard all pending merges before processing new input.
     </div>
 
-    <script src="app.js?v=8"></script>
+    <script src="app.js?v=13"></script>
 </body>
 
 </html>

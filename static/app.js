@@ -33,6 +33,181 @@ async function loadStructure() {
     renderStructure();
 }
 
+// Helper: Check if a section is a placeholder (Feature 1, Milestone 1) with only template content
+function isPlaceholderSection(item) {
+    const title = item.title || "";
+    const content = item.content || "";
+
+    // Check if title is exactly "Feature 1" or "Milestone 1"
+    if (title !== "Feature 1" && title !== "Milestone 1") {
+        return false;
+    }
+
+    // Check if content is just the template structure (only headers, no actual content)
+    const lines = content.split('\n').filter(line => line.trim());
+
+    // If there are non-header lines with actual content, it's not a placeholder
+    for (const line of lines) {
+        const trimmed = line.trim();
+        // Skip empty lines and header lines
+        if (!trimmed || trimmed.startsWith('#')) {
+            continue;
+        }
+        // If we find any non-header content, it's not a placeholder
+        return false;
+    }
+
+    // Only headers found, this is a placeholder
+    return true;
+}
+
+// Helper: Check if content has child sections (nested headers at different levels)
+function hasChildSections(content) {
+    if (!content) return false;
+
+    // Check if there are multiple header levels
+    const lines = content.split('\n');
+    const headerLevels = new Set();
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('#')) {
+            const match = trimmed.match(/^#+/);
+            if (match) {
+                headerLevels.add(match[0].length);
+            }
+        }
+    }
+
+    // If there are 2+ different header levels, it has child sections
+    // e.g., ## Context, Aim & Integration with ### Context, ### Aim underneath
+    return headerLevels.size >= 2;
+}
+
+// Helper: Check if content is empty or just template structure
+function isEmptyOrTemplate(content) {
+    if (!content || content.trim() === '') {
+        return true;
+    }
+
+    // If it has child sections (nested headers), it's not truly empty - it has structure
+    // e.g., ## Context, Aim & Integration\n\n### Context\n\n### Aim\n\n
+    // This should NOT be treated as empty because it has a hierarchical structure
+    if (hasChildSections(content)) {
+        return false;
+    }
+
+    // Check if it's just headers with no content between them
+    const lines = content.split('\n');
+    let hasActualContent = false;
+
+    for (const line of lines) {
+        const trimmedLine = line.trim();
+        // Skip empty lines and header lines
+        if (!trimmedLine || trimmedLine.startsWith('#')) {
+            continue;
+        }
+        // Found actual content
+        hasActualContent = true;
+        break;
+    }
+
+    return !hasActualContent;
+}
+
+// Helper: Check if content is a template with multiple subsections (e.g., feature/milestone template)
+function isTemplateWithStructure(content) {
+    if (!content || content.trim() === '') {
+        return false;
+    }
+
+    // Count level-4 headers (####)
+    const level4Headers = (content.match(/^####\s+/gm) || []).length;
+
+    // If there are 2+ level-4 headers and no actual content, it's a template
+    if (level4Headers >= 2) {
+        // Check if there's actual content (non-header, non-empty lines)
+        const lines = content.split('\n');
+        let hasContent = false;
+
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed && !trimmed.startsWith('#')) {
+                hasContent = true;
+                break;
+            }
+        }
+
+        // Template if it has structure but no content
+        return !hasContent;
+    }
+
+    return false;
+}
+
+// Helper: Parse content into subsections (for template merging)
+function parseSubsections(content) {
+    const sections = {};
+    const lines = content.split('\n');
+    let currentSection = null;
+    let currentContent = [];
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+
+        // Check for level-4 header (####)
+        if (trimmed.startsWith('####')) {
+            // Save previous section
+            if (currentSection) {
+                sections[currentSection] = currentContent.join('\n');
+            }
+
+            // Start new section
+            currentSection = trimmed.replace(/^####\s+/, '');
+            currentContent = [line];
+        } else if (currentSection) {
+            currentContent.push(line);
+        }
+    }
+
+    // Save last section
+    if (currentSection) {
+        sections[currentSection] = currentContent.join('\n');
+    }
+
+    return sections;
+}
+
+// Helper: Merge new subsections into template structure
+function mergeIntoTemplate(template, newContent) {
+    // Parse both into subsections
+    const templateSections = parseSubsections(template);
+    const newSections = parseSubsections(newContent);
+
+    // Merge: for each section in new content, replace in template
+    for (const [sectionName, sectionContent] of Object.entries(newSections)) {
+        templateSections[sectionName] = sectionContent;
+    }
+
+    // Reconstruct the merged content
+    const mergedParts = [];
+
+    // Get the header line (e.g., "### Feature: World Engine")
+    const headerMatch = template.match(/^###\s+.+$/m);
+    if (headerMatch) {
+        mergedParts.push(headerMatch[0]);
+        mergedParts.push('');
+    }
+
+    // Add all subsections in order (preserve template order)
+    for (const [sectionName, sectionContent] of Object.entries(templateSections)) {
+        mergedParts.push(sectionContent);
+        mergedParts.push('');
+    }
+
+    return mergedParts.join('\n').trim();
+}
+
 function renderStructure() {
     const list = document.getElementById('structureList');
     list.innerHTML = "";
@@ -40,6 +215,20 @@ function renderStructure() {
     const renderedTitles = new Set();
 
     currentStructure.forEach((item, index) => {
+        // Skip placeholder sections (Feature 1, Milestone 1) if they only contain template structure
+        if (isPlaceholderSection(item)) {
+            return;
+        }
+
+        // Only show levels 1-3 in tree (hide subsections like #### Context, #### Constraints)
+        // Level 1: # Document Title
+        // Level 2: ## Lexicon, ## Features, ## Roadmap
+        // Level 3: ### Feature: X, ### Milestone: Y
+        // Level 4+: #### Context, #### Technical Requirements (hidden from tree)
+        if (item.level > 3) {
+            return;
+        }
+
         renderedTitles.add(item.title);
         const div = document.createElement('div');
         div.className = `structure-item level-${item.level}`;
@@ -64,6 +253,9 @@ function renderStructure() {
                 document.getElementById('arbiterControls').classList.add('hidden');
 
                 currentViewedSection = item.title;
+
+                // Scroll preview into view
+                document.getElementById('docPreview').scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
             updateEditButtonState();
         };
@@ -204,6 +396,34 @@ async function selectPendingMerge(title) {
     mergedArea.value = "";
     document.getElementById('diffView').dataset.targetSection = title;
 
+    // 4. Check merge strategy based on original content type
+
+    // Case 1: Original is a template with structure (e.g., feature/milestone template)
+    // and new content has subsections - merge intelligently
+    // CHECK THIS FIRST before the empty check, because templates are "empty" but have structure
+    if (isTemplateWithStructure(realOriginal)) {
+        // Check if new content has subsections to merge
+        const newSections = parseSubsections(currentMatch.new_text);
+
+        if (Object.keys(newSections).length > 0) {
+            console.log(`[UI] Smart merge: inserting ${Object.keys(newSections).length} subsection(s) into template for '${title}'`);
+            const smartMerged = mergeIntoTemplate(realOriginal, currentMatch.new_text);
+            mergedArea.value = smartMerged;
+            notify(`Ready to merge '${title}' (${items.length} remaining) - template merged`);
+            return;
+        }
+    }
+
+    // Case 2: Original is truly empty (no structure) - use new content directly
+    if (isEmptyOrTemplate(realOriginal)) {
+        console.log(`[UI] Skipping LLM merge for '${title}' - original is empty/template`);
+        mergedArea.value = currentMatch.new_text;
+        notify(`Ready to merge '${title}' (${items.length} remaining) - no conflicts`);
+        return;
+    }
+
+    // Case 3: Original has content or merge is ambiguous - call LLM
+
     // Show spinner & Stop button
     // We assume it's running/pending until proven otherwise
     spinner.classList.remove('hidden');
@@ -222,7 +442,7 @@ async function selectPendingMerge(title) {
     }
 
     try {
-        // 4. Fetch Merge (Polling) via Cache
+        // 5. Fetch Merge (Polling) via Cache
         const cacheEntry = getMergePromise(title, realOriginal, currentMatch.new_text);
 
         // Wait for Task ID to be assigned (in case it's starting up)
@@ -494,12 +714,25 @@ let currentViewedSection = null;
 
 async function viewFullDocument() {
     const name = document.getElementById('docName').value;
-    notify("Fetching full document...");
-    const res = await fetch(`${API_BASE}/structure/${name}`);
-    await initDocument(false);
-    notify("Full document loaded.");
+    notify("Loading full document...");
+
+    // Clear any active section selection
+    document.querySelectorAll('.structure-item').forEach(el => el.classList.remove('active'));
+
+    // Hide diff view if visible
+    document.getElementById('diffView').classList.add('hidden');
+    document.getElementById('arbiterControls').classList.add('hidden');
+
+    // Get and display full document
+    const content = await fetch(`${API_BASE}/spec/${name}`)
+        .then(res => res.json())
+        .then(data => data.content);
+
+    document.getElementById('docPreview').textContent = content;
+
     currentViewedSection = null; // We are viewing full doc
     updateEditButtonState();
+    notify("Full document displayed.");
 }
 
 function updateEditButtonState() {
@@ -895,40 +1128,38 @@ async function copyToClipboard(elementId) {
 }
 
 // Add origin content to merge result
-async function addOriginToMerge() {
-    // Stop any ongoing generation
-    if (currentTaskId) {
-        await stopGeneration();
-    }
-
+function addOriginToMerge() {
     const originalContent = document.getElementById('originalContent').textContent;
     const mergedArea = document.getElementById('mergedContent');
 
-    // Append to existing content if any, otherwise replace
-    if (mergedArea.value && mergedArea.value.trim() !== '' && !mergedArea.value.includes('Error:') && mergedArea.value !== 'Generation stopped by user.') {
-        mergedArea.value += '\n\n' + originalContent;
-    } else {
+    // Preserve current content and append
+    const currentValue = mergedArea.value.trim();
+
+    // Skip if current value is an error message or empty
+    if (!currentValue || currentValue.includes('Error:') || currentValue === 'Generation stopped by user.') {
         mergedArea.value = originalContent;
+    } else {
+        // Append with separator
+        mergedArea.value = currentValue + '\n\n' + originalContent;
     }
 
     notify('Original content added to merge result.');
 }
 
 // Add new input content to merge result
-async function addNewInputToMerge() {
-    // Stop any ongoing generation
-    if (currentTaskId) {
-        await stopGeneration();
-    }
-
+function addNewInputToMerge() {
     const newContent = document.getElementById('newContent').textContent;
     const mergedArea = document.getElementById('mergedContent');
 
-    // Append to existing content if any, otherwise replace
-    if (mergedArea.value && mergedArea.value.trim() !== '' && !mergedArea.value.includes('Error:') && mergedArea.value !== 'Generation stopped by user.') {
-        mergedArea.value += '\n\n' + newContent;
-    } else {
+    // Preserve current content and append
+    const currentValue = mergedArea.value.trim();
+
+    // Skip if current value is an error message or empty
+    if (!currentValue || currentValue.includes('Error:') || currentValue === 'Generation stopped by user.') {
         mergedArea.value = newContent;
+    } else {
+        // Append with separator
+        mergedArea.value = currentValue + '\n\n' + newContent;
     }
 
     notify('New input content added to merge result.');
