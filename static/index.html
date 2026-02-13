@@ -6,6 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Specer - Semantic Spec Merger</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="syntax.css">
+    <link rel="stylesheet" href="monokai.css">
 </head>
 
 <body>
@@ -142,18 +144,28 @@ To prevent brute-force attacks, the login endpoint must enforce a rate limit of 
                         <div class="diff-col half">
                             <div style="display: flex; justify-content: space-between; align-items: center;">
                                 <h3>Original (Current in Doc)</h3>
-                                <button onclick="copyToClipboard('originalContent')" class="copy-btn"
-                                    title="Copy to clipboard">📋</button>
+                                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                    <button onclick="toggleSectionFormat('original')" class="format-toggle"
+                                        id="btnToggleOriginal">View as HTML</button>
+                                    <button onclick="copyToClipboard('originalContent')" class="copy-btn"
+                                        title="Copy to clipboard">📋</button>
+                                </div>
                             </div>
                             <div id="originalContent" class="preview-box"></div>
+                            <div id="originalContentHtml" class="preview-box rendered-html hidden"></div>
                         </div>
                         <div class="diff-col half">
                             <div style="display: flex; justify-content: space-between; align-items: center;">
                                 <h3>Input Update</h3>
-                                <button onclick="copyToClipboard('newContent')" class="copy-btn"
-                                    title="Copy to clipboard">📋</button>
+                                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                    <button onclick="toggleSectionFormat('new')" class="format-toggle"
+                                        id="btnToggleNew">View as HTML</button>
+                                    <button onclick="copyToClipboard('newContent')" class="copy-btn"
+                                        title="Copy to clipboard">📋</button>
+                                </div>
                             </div>
                             <div id="newContent" class="preview-box"></div>
+                            <div id="newContentHtml" class="preview-box rendered-html hidden"></div>
                         </div>
                     </div>
                     <div class="diff-row bottom">
@@ -161,6 +173,8 @@ To prevent brute-force attacks, the login endpoint must enforce a rate limit of 
                             style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                             <h3 style="margin: 0;">Proposed Merge</h3>
                             <div style="display: flex; gap: 0.5rem;">
+                                <button onclick="toggleMergeFormat()" class="format-toggle" id="btnToggleMerge">View as
+                                    HTML</button>
                                 <button onclick="addOriginToMerge()" class="secondary"
                                     title="Add original content to merge result">Add Origin</button>
                                 <button onclick="addNewInputToMerge()" class="secondary"
@@ -171,6 +185,7 @@ To prevent brute-force attacks, the login endpoint must enforce a rate limit of 
                         </div>
                         <div class="merge-wrapper">
                             <textarea id="mergedContent" class="preview-box editable"></textarea>
+                            <div id="mergedContentHtml" class="preview-box rendered-html hidden"></div>
                             <div id="mergeSpinner" class="spinner hidden"></div>
                             <div class="actions">
                                 <button onclick="commitMerge()" class="success">Accept & Merge</button>
@@ -188,10 +203,29 @@ To prevent brute-force attacks, the login endpoint must enforce a rate limit of 
 
             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem;">
                 <h2>Current Document Preview</h2>
-                <button id="btnEditSection" onclick="editCurrentSection()" class="primary hidden">Edit
-                    Section</button>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button onclick="toggleDocumentFormat()" class="format-toggle" id="btnToggleDocument">View as
+                        HTML</button>
+                    <button id="btnEditSection" onclick="editCurrentSection()" class="primary hidden">Edit
+                        Section</button>
+                    <button id="btnEditDocument" onclick="editFullDocument()" class="primary hidden">Edit
+                        Document</button>
+                </div>
             </div>
             <pre id="docPreview"></pre>
+            <div id="docPreviewHtml" class="rendered-html hidden"></div>
+
+            <!-- Document Edit Mode -->
+            <div id="documentEditMode" class="hidden">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                    <h3>Edit Document (Markdown)</h3>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button onclick="saveDocumentEdit()" class="success">Save Changes</button>
+                        <button onclick="cancelDocumentEdit()" class="secondary">Cancel</button>
+                    </div>
+                </div>
+                <textarea id="documentEditArea" class="preview-box editable" rows="30"></textarea>
+            </div>
         </div>
     </main>
 

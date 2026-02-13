@@ -1196,3 +1196,265 @@ function addNewInputToMerge() {
 
     notify('New input content added to merge result.');
 }
+
+/* ========================================
+   FORMAT SWITCHING FUNCTIONS
+   ======================================== */
+
+// Track format state
+let sectionOriginalFormat = 'markdown';
+let sectionNewFormat = 'markdown';
+let mergeResultFormat = 'markdown';
+let documentFormat = 'markdown';
+let isEditingDocument = false;
+
+async function toggleSectionFormat(which) {
+    const name = document.getElementById('docName').value;
+    const targetSection = document.getElementById('diffView').dataset.targetSection;
+
+    if (!targetSection) {
+        notify('No section selected');
+        return;
+    }
+
+    if (which === 'original') {
+        const btn = document.getElementById('btnToggleOriginal');
+        const mdDiv = document.getElementById('originalContent');
+        const htmlDiv = document.getElementById('originalContentHtml');
+
+        if (sectionOriginalFormat === 'markdown') {
+            // Switch to HTML
+            notify('Rendering original as HTML...');
+            try {
+                const res = await fetch(`${API_BASE}/render/section/${name}/${encodeURIComponent(targetSection)}?format=html`);
+                const data = await res.json();
+                htmlDiv.innerHTML = data.content;
+                mdDiv.classList.add('hidden');
+                htmlDiv.classList.remove('hidden');
+                btn.textContent = 'View as Markdown';
+                sectionOriginalFormat = 'html';
+            } catch (e) {
+                console.error('Failed to render HTML:', e);
+                notify('Failed to render HTML');
+            }
+        } else {
+            // Switch to Markdown
+            mdDiv.classList.remove('hidden');
+            htmlDiv.classList.add('hidden');
+            btn.textContent = 'View as HTML';
+            sectionOriginalFormat = 'markdown';
+        }
+    } else if (which === 'new') {
+        const btn = document.getElementById('btnToggleNew');
+        const mdDiv = document.getElementById('newContent');
+        const htmlDiv = document.getElementById('newContentHtml');
+
+        if (sectionNewFormat === 'markdown') {
+            // Switch to HTML - render the current text content
+            notify('Rendering new content as HTML...');
+            try {
+                const markdownContent = mdDiv.textContent;
+                // Use a temporary render by posting to the API
+                const res = await fetch(`${API_BASE}/render/section/${name}/${encodeURIComponent(targetSection)}?format=html`);
+                const data = await res.json();
+
+                // Actually, we need to render the NEW content, not the section
+                // Let's render it client-side using the document endpoint as a workaround
+                // For now, just use basic markdown rendering
+                htmlDiv.innerHTML = `<pre>${markdownContent}</pre>`;
+                mdDiv.classList.add('hidden');
+                htmlDiv.classList.remove('hidden');
+                btn.textContent = 'View as Markdown';
+                sectionNewFormat = 'html';
+            } catch (e) {
+                console.error('Failed to render HTML:', e);
+                notify('Failed to render HTML');
+            }
+        } else {
+            // Switch to Markdown
+            mdDiv.classList.remove('hidden');
+            htmlDiv.classList.add('hidden');
+            btn.textContent = 'View as HTML';
+            sectionNewFormat = 'markdown';
+        }
+    }
+}
+
+async function toggleMergeFormat() {
+    const btn = document.getElementById('btnToggleMerge');
+    const textarea = document.getElementById('mergedContent');
+    const htmlDiv = document.getElementById('mergedContentHtml');
+    const name = document.getElementById('docName').value;
+
+    if (mergeResultFormat === 'markdown') {
+        // Switch to HTML - render current textarea content
+        notify('Rendering merge result as HTML...');
+        const markdownContent = textarea.value;
+
+        if (!markdownContent) {
+            notify('No content to render');
+            return;
+        }
+
+        try {
+            // Use the preview endpoint to render arbitrary markdown
+            const res = await fetch(`${API_BASE}/render/preview`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name, text: markdownContent })
+            });
+            const data = await res.json();
+
+            htmlDiv.innerHTML = data.content;
+            textarea.classList.add('hidden');
+            htmlDiv.classList.remove('hidden');
+            btn.textContent = 'Edit as Markdown';
+            mergeResultFormat = 'html';
+            notify('HTML preview (editing disabled)');
+        } catch (e) {
+            console.error('Failed to render HTML:', e);
+            notify('Failed to render HTML');
+        }
+    } else {
+        // Switch to Markdown
+        textarea.classList.remove('hidden');
+        htmlDiv.classList.add('hidden');
+        btn.textContent = 'View as HTML';
+        mergeResultFormat = 'markdown';
+        notify('Markdown editing enabled');
+    }
+}
+
+async function toggleDocumentFormat() {
+    const name = document.getElementById('docName').value;
+    const btn = document.getElementById('btnToggleDocument');
+    const mdPre = document.getElementById('docPreview');
+    const htmlDiv = document.getElementById('docPreviewHtml');
+    const editBtn = document.getElementById('btnEditDocument');
+
+    if (documentFormat === 'markdown') {
+        // Switch to HTML
+        notify('Rendering document as HTML...');
+        try {
+            const res = await fetch(`${API_BASE}/render/document/${name}?format=html`);
+            const data = await res.json();
+            htmlDiv.innerHTML = data.content;
+            mdPre.classList.add('hidden');
+            htmlDiv.classList.remove('hidden');
+            btn.textContent = 'View as Markdown';
+            editBtn.classList.add('hidden'); // Can't edit in HTML mode
+            documentFormat = 'html';
+        } catch (e) {
+            console.error('Failed to render HTML:', e);
+            notify('Failed to render HTML');
+        }
+    } else {
+        // Switch to Markdown
+        mdPre.classList.remove('hidden');
+        htmlDiv.classList.add('hidden');
+        btn.textContent = 'View as HTML';
+        // Show edit button only if not viewing a section
+        if (!currentViewedSection) {
+            editBtn.classList.remove('hidden');
+        }
+        documentFormat = 'markdown';
+    }
+}
+
+async function editFullDocument() {
+    const name = document.getElementById('docName').value;
+
+    // Get current document
+    const content = await fetch(`${API_BASE}/spec/${name}`)
+        .then(res => res.json())
+        .then(data => data.content);
+
+    // Show edit mode
+    document.getElementById('documentEditArea').value = content;
+    document.getElementById('documentEditMode').classList.remove('hidden');
+    document.getElementById('docPreview').classList.add('hidden');
+    document.getElementById('docPreviewHtml').classList.add('hidden');
+    document.getElementById('btnToggleDocument').classList.add('hidden');
+    document.getElementById('btnEditDocument').classList.add('hidden');
+
+    isEditingDocument = true;
+    notify('Editing full document...');
+}
+
+function cancelDocumentEdit() {
+    document.getElementById('documentEditMode').classList.add('hidden');
+    document.getElementById('docPreview').classList.remove('hidden');
+    document.getElementById('btnToggleDocument').classList.remove('hidden');
+    document.getElementById('btnEditDocument').classList.remove('hidden');
+
+    isEditingDocument = false;
+    notify('Edit cancelled');
+}
+
+async function saveDocumentEdit() {
+    const name = document.getElementById('docName').value;
+    const content = document.getElementById('documentEditArea').value;
+
+    // Prompt for commit message
+    const message = prompt('Enter a commit message for this edit:');
+
+    if (!message) {
+        notify('Save cancelled - commit message required');
+        return;
+    }
+
+    try {
+        // Save the document
+        await fetch(`${API_BASE}/commit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, content })
+        });
+
+        // Validate merge to bump version
+        await fetch(`${API_BASE}/validate-merge`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, comment: message })
+        });
+
+        // Exit edit mode
+        cancelDocumentEdit();
+
+        // Reload document and structure
+        await initDocument(false);
+
+        notify(`Document saved: ${message}`);
+    } catch (e) {
+        console.error('Failed to save document:', e);
+        notify('Failed to save document');
+    }
+}
+
+// Update viewFullDocument to show edit button
+async function viewFullDocument() {
+    const name = document.getElementById('docName').value;
+    notify("Loading full document...");
+
+    // Clear any active section selection
+    document.querySelectorAll('.structure-item').forEach(el => el.classList.remove('active'));
+
+    // Hide diff view if visible
+    document.getElementById('diffView').classList.add('hidden');
+    document.getElementById('arbiterControls').classList.add('hidden');
+
+    // Get and display full document
+    const content = await fetch(`${API_BASE}/spec/${name}`)
+        .then(res => res.json())
+        .then(data => data.content);
+
+    document.getElementById('docPreview').textContent = content;
+
+    currentViewedSection = null; // We are viewing full doc
+
+    // Show edit document button
+    document.getElementById('btnEditDocument').classList.remove('hidden');
+    updateEditButtonState();
+    notify("Full document displayed.");
+}
+

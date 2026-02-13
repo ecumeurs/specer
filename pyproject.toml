@@ -9,6 +9,8 @@ dependencies = [
     "uvicorn",
     "httpx",
     "numpy",
+    "markdown>=3.10.2",
+    "pygments>=2.19.2",
 ]
 
 [dependency-groups]

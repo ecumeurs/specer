@@ -8,7 +8,7 @@
 
 ### Aim
 
-### Integration
+### Architectural Stack
 
 The system operates on a strict three-tier separation of concerns to ensure simulation integrity and client responsiveness.
 
@@ -44,88 +44,7 @@ The system operates on a strict three-tier separation of concerns to ensure simu
 
 #### Other Notes
 
-### Feature: World Engine
-
-#### Context, Aim & Integration
-
-The Engine is a headless simulation environment that manages the world state without awareness of player identities, focusing solely on **Entities** and **States**.
-
-
-
-#### Constraints
-
-* The Engine must ignore any command not signed/originated by the Controller.
-* State updates are computed as deltas triggered by player interaction or "ticks."
-
-
-#### User Stories
-
-
-
-#### Technical Requirements
-
-* **State Resolution:** Must calculate results of worker/task pairings based on regional deltas.
-* **Randomness Authority:** Centralized RNG for monster raids, caravan survival, and loot tables.
-* **Ownership Registry:** Authoritative ledger for city, road, and worker ownership.
-* **The Event Log:** Immutable record of world events (Caravan loss, "Flashes") to be consumed by the Intrigue system.
-
-#### API
-
-
-#### Data Layer
-
-
-#### Validation
-
-
-#### Dependencies
-
-
-#### Other Notes
-### Feature: UI Architecture
-
-#### Context, Aim & Integration
-
-The UI acts as the "CEO’s Visualizer," utilizing a "Gritty/Rusted" T1 aesthetic. It prioritizes forecasting over raw data.
-
-
-#### Constraints
-
-
-#### User Stories
-
-
-#### Technical Requirements
-
-* **Forecast HUD:** Must render "Ghost Bars" to preview production changes before commitment.
-* **Warning System:** Must highlight discrepancies where "Reality Spikes" cause actual results to deviate from the Controller's forecast.
-
-#### API
-
-
-#### Data Layer
-
-
-#### Validation
-
-
-#### Dependencies
-
-
-#### Other Notes
-
-#### UI Modules
-
-* **The HUD:** Persistent display of Credits, Global Stability Index (), and the Shield Subscription Timer.
-* **The Vertical Map:** A cross-section view of the Sphere.
-* *Tier 1:* Bottom (Dark/Fog).
-* *Tier 2:* Mid (Dim).
-* *Tier 3:* Top (Bright).
-
-
-* **City View:** Functional layout for resource slots, processing (Refineries), and the Garrison/Shield Generator.
-* **Neural Cortex (HRM):** Interface for worker profiles, "Memory Wipes," and shift scheduling via a timeline view.
-
+Error merging content: Timeout after 60s: ReadTimeout
 ## Roadmap
 
 ### Milestone 1
@@ -144,19 +63,4 @@ The UI acts as the "CEO’s Visualizer," utilizing a "Gritty/Rusted" T1 aestheti
 
 
 #### Validation
-### Milestone: 2: The Logistics Expansion
-
-#### Content
-
-* **Phase 3 (Connectivity):** Map Graph (Nodes/Edges), Caravan Entity Mover, and "Return Trip" loot logic for Blueprints.
-* **Phase 4 (Human Element):** Worker properties (Dissonance, Sanity), Template System, and Shift Logic.
-
-
-#### Validation
-### Milestone: 3: The Metamorphosis (Tier 2)
-
-#### Content
-
-* **Phase 5 (Tycoon):** Corporate state (Debt/Reputation), Buyout/Prestige mechanics, and Road Sovereignty (Taxation logic).
-
-#### Validation
+Error merging content: Timeout after 60s: ReadTimeout

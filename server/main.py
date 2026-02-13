@@ -1,10 +1,11 @@
 import re
 import logging
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Literal
 from server.document_manager import manager
+from server.markdown_renderer import render_markdown
 
 # Configure Logging
 logging.basicConfig(
@@ -31,6 +32,11 @@ class DiffRequest(BaseModel):
 class CommitRequest(BaseModel):
     name: str
     content: str
+
+class RenderResponse(BaseModel):
+    """Response model for render endpoints."""
+    content: str
+    format: str
 
 # API Endpoints
 
@@ -167,6 +173,98 @@ async def rollback_document(req: RollbackRequest):
         "new_version": vc_data["current_version"],
         "content": manager.get_document(req.name)
     }
+
+# -------------------------------------------------------------------------
+# Render Endpoints
+# -------------------------------------------------------------------------
+
+@app.get("/api/render/section/{name}/{section_title}")
+async def render_section(
+    name: str,
+    section_title: str,
+    format: Literal["markdown", "html"] = Query(default="markdown")
+) -> RenderResponse:
+    """
+    Render a specific section in the requested format.
+    
+    Args:
+        name: Document name
+        section_title: Title of the section to render
+        format: Output format (markdown or html)
+        
+    Returns:
+        RenderResponse with content and format
+    """
+    logger.info(f"RENDER SECTION Request: name='{name}', section='{section_title}', format='{format}'")
+    
+    # Get document structure
+    structure = manager.get_structure(name)
+    
+    # Find the section
+    section = None
+    for item in structure:
+        if item["title"].lower() == section_title.lower():
+            section = item
+            break
+    
+    if not section:
+        raise HTTPException(status_code=404, detail=f"Section '{section_title}' not found")
+    
+    content = section["content"]
+    
+    # Render to HTML if requested
+    if format == "html":
+        content = render_markdown(content)
+    
+    return RenderResponse(content=content, format=format)
+
+@app.get("/api/render/document/{name}")
+async def render_document(
+    name: str,
+    format: Literal["markdown", "html"] = Query(default="markdown")
+) -> RenderResponse:
+    """
+    Render the full document in the requested format.
+    
+    Args:
+        name: Document name
+        format: Output format (markdown or html)
+        
+    Returns:
+        RenderResponse with content and format
+    """
+    logger.info(f"RENDER DOCUMENT Request: name='{name}', format='{format}'")
+    
+    content = manager.get_document(name)
+    
+    if not content:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    # Render to HTML if requested
+    if format == "html":
+        content = render_markdown(content)
+    
+    return RenderResponse(content=content, format=format)
+
+@app.post("/api/render/preview")
+async def render_preview(req: ProcessRequest) -> RenderResponse:
+    """
+    Render arbitrary markdown content as HTML without saving.
+    
+    Useful for previewing merge results or other temporary content.
+    
+    Args:
+        req: ProcessRequest with markdown text to render
+        
+    Returns:
+        RenderResponse with HTML content
+    """
+    logger.info(f"RENDER PREVIEW Request: {len(req.text)} chars")
+    
+    html = render_markdown(req.text)
+    
+    return RenderResponse(content=html, format="html")
+
 
 # Stub Endpoints for Phase 1
 
