@@ -446,6 +446,29 @@ async function selectPendingMerge(title) {
         }
     }
 
+    // Case 1.5: Original has content, but the specific subsection(s) being introduced by new_text
+    // are empty slots inside it (e.g. chunk 2/3 of the same Feature block after chunk 1 was committed).
+    // When ALL targeted subsections are empty in realOriginal, merge directly without LLM.
+    const newSubsections = parseSubsections(currentMatch.new_text);
+    if (Object.keys(newSubsections).length > 0 && realOriginal) {
+        const origSubsections = parseSubsections(realOriginal);
+        const allTargetsEmpty = Object.keys(newSubsections).every(subName => {
+            const origSub = origSubsections[subName];
+            // A subsection is "empty" if it only contains its header line and no other content
+            if (!origSub) return true; // subsection doesn't exist in original → empty slot
+            const bodyLines = origSub.split('\n').slice(1); // skip the header line itself
+            return bodyLines.every(l => !l.trim()); // all remaining lines are blank
+        });
+
+        if (allTargetsEmpty) {
+            console.log(`[UI] Case 1.5 – all targeted subsections are empty in '${title}'. Direct smart-merge.`);
+            const smartMerged = mergeIntoTemplate(realOriginal, currentMatch.new_text);
+            mergedArea.value = smartMerged;
+            notify(`Ready to merge '${title}' (${items.length} remaining) - no conflicts`);
+            return;
+        }
+    }
+
     // Case 2: Original is truly empty (no structure) - use new content directly
     if (isEmptyOrTemplate(realOriginal)) {
         console.log(`[UI] Skipping LLM merge for '${title}' - original is empty/template`);
