@@ -11,6 +11,7 @@ Requirement for a user-friendly interface to manage the "Protocol" flow, visuali
     * As a user, I want to review the proposed merge for a specific section against the original.
     * As a user, I want to edit the merged result before committing.
     * As a user, I want to stop a long-running generation process.
+    * As a user, I want to click a Feature section and generate a concise AI summary stored in a `#### Summary` subsection at the top.
 
 ## Business Logic
 * **Protocol Parsing**: The frontend sends raw text to the backend to parse "Protocol Blocks".
@@ -27,5 +28,6 @@ Requirement for a user-friendly interface to manage the "Protocol" flow, visuali
 * [x] Structural visualization.
 * [x] Merge review and commit.
 * [x] Stop button for long-running tasks.
+* [x] Feature summary generation via Ollama (`#### Summary` subsection, 100–200 words).
 * [ ] Rich text editor (currently textarea).
 * [ ] HTML Preview

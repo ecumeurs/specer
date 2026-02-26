@@ -1,11 +1,19 @@
 import re
 import logging
+import asyncio
+import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, Literal
+from dotenv import load_dotenv
 from server.document_manager import manager
 from server.markdown_renderer import render_markdown
+
+# Load environment variables from .env file (GEMINI_API_KEY etc.)
+load_dotenv()
 
 # Configure Logging
 logging.basicConfig(
@@ -15,7 +23,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger("specer")
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start background tasks on startup."""
+    asyncio.create_task(_idle_cleanup_loop())
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 class InitRequest(BaseModel):
     name: str
@@ -534,6 +550,300 @@ async def cancel_task(task_id: str):
         return {"message": "Cancellation requested"}
     
     return {"message": "Task already completed or cancelled"}
+
+
+# -------------------------------------------------------------------------
+# Summary Generation Endpoint
+# -------------------------------------------------------------------------
+
+class SummaryRequest(BaseModel):
+    """Request to generate an AI summary for a feature section.
+
+    Attributes:
+        name:    Document name (used to look up the section content).
+        section: Exact title of the feature section to summarise
+                 (e.g. ``"Feature: User Authentication"``).
+    """
+    name: str
+    section: str
+
+
+@app.post("/api/summary")
+async def generate_summary(req: SummaryRequest):
+    """Generate a 100–200 word Ollama summary for a feature section.
+
+    Steps:
+        1. Look up the section in the document structure (404 if missing).
+        2. Gather full content including child sub-sections.
+        3. Call ``ollama.generate_summary(content)``.
+        4. Return ``{"summary": "<text>"}`` or raise 500 on Ollama error.
+    """
+    logger.info(f"SUMMARY Request: doc='{req.name}', section='{req.section}'")
+
+    structure = manager.get_structure(req.name)
+    if not structure:
+        raise HTTPException(status_code=404, detail=f"Document '{req.name}' not found.")
+
+    # Locate the requested section (case-insensitive)
+    idx = next(
+        (i for i, s in enumerate(structure) if s["title"].lower() == req.section.lower()),
+        None
+    )
+    if idx is None:
+        raise HTTPException(status_code=404, detail=f"Section '{req.section}' not found.")
+
+    # Gather section + all children
+    base_level = structure[idx]["level"]
+    parts = [structure[idx]["content"]]
+    for s in structure[idx + 1:]:
+        if s["level"] <= base_level:
+            break
+        parts.append(s["content"])
+    full_content = "\n".join(parts)
+
+    summary_text = await ollama.generate_summary(full_content)
+
+    if summary_text.startswith("Error:"):
+        logger.error(f"SUMMARY Failed for '{req.section}': {summary_text}")
+        raise HTTPException(status_code=500, detail=summary_text)
+
+    logger.info(f"SUMMARY Success: '{req.section}' → {len(summary_text)} chars")
+    return {"summary": summary_text}
+
+
+# -------------------------------------------------------------------------
+# Gemini Chat Endpoints
+# -------------------------------------------------------------------------
+
+from server.gemini_client import gemini_client, session_repo, DEFAULT_MODEL
+import uuid as _uuid
+
+
+class GeminiSessionRequest(BaseModel):
+    """
+    Request to open a new Gemini chat session.
+
+    Attributes:
+        doc_name:               Document to work on (used to fetch structure/content).
+        scope:                  "document" for a global discussion, or an exact section
+                                title (e.g. "Feature: Auth") for a focused conversation.
+        model:                  Gemini model ID. Defaults to gemini-3-flash-preview.
+        include_global_context: If True and a top-level "Context, Aim & Integration"
+                                section exists, its content is appended to the system prompt.
+    """
+    doc_name: str = "default"
+    scope: str = "document"
+    model: str = DEFAULT_MODEL
+    include_global_context: bool = True
+
+
+class GeminiChatRequest(BaseModel):
+    """
+    Request to send one user turn within an existing chat session.
+
+    Attributes:
+        message:         The user's message text.
+        linked_sections: Section titles whose content should be prepended to this
+                         message (sent once; the UI clears chips after send).
+    """
+    message: str
+    linked_sections: list[str] = []
+
+
+# Background task: evict idle sessions every 60 s
+async def _idle_cleanup_loop():
+    while True:
+        await asyncio.sleep(60)
+        removed = await session_repo.cleanup_idle()
+        if removed:
+            logger.info(f"[Cleanup] Evicted {removed} idle Gemini session(s)")
+
+
+
+@app.get("/api/gemini/models")
+async def list_gemini_models():
+    """
+    Return the list of Gemini models available for structured-output chat.
+
+    The list is ordered: preferred / newer models appear first.
+    Falls back to a hard-coded default list if the API key is not set.
+    """
+    models = await gemini_client.list_models()
+    return {"models": models, "default": DEFAULT_MODEL}
+
+
+@app.post("/api/gemini/session", status_code=201)
+async def create_gemini_session(req: GeminiSessionRequest):
+    """
+    Create a new Gemini chat session.
+
+    - Fetches the document structure and section content from DocumentManager.
+    - Builds the system prompt (doc tree + scope content + optional global context).
+    - Creates a google-genai Chat object stored server-side.
+
+    Returns:
+        session_id (str): UUID to use in subsequent /api/gemini/chat and DELETE calls.
+    """
+    structure = manager.get_structure(req.doc_name)
+    if not structure and req.scope != "document":
+        raise HTTPException(status_code=404, detail=f"Document '{req.doc_name}' not found.")
+
+    # Build flat tree list for system prompt
+    doc_tree = [{"title": s["title"], "level": s["level"]} for s in structure]
+
+    # --- Resolve scope content ---
+    if req.scope == "document":
+        scope_label = "Document level"
+        scope_content = manager.get_document(req.doc_name)
+    else:
+        # Find matching section + all its children
+        idx = next(
+            (i for i, s in enumerate(structure) if s["title"].lower() == req.scope.lower()),
+            None
+        )
+        if idx is None:
+            raise HTTPException(status_code=404, detail=f"Section '{req.scope}' not found.")
+
+        scope_label = req.scope
+        base_level = structure[idx]["level"]
+        # Gather section + children
+        parts = [structure[idx]["content"]]
+        for s in structure[idx + 1:]:
+            if s["level"] <= base_level:
+                break
+            parts.append(s["content"])
+        scope_content = "\n".join(parts)
+
+    # --- Optional global context (top-level "Context, Aim & Integration") ---
+    global_context: Optional[str] = None
+    if req.include_global_context:
+        ctx_section = next(
+            (s for s in structure
+             if "context" in s["title"].lower() and "aim" in s["title"].lower()
+             and s["level"] == 2),
+            None
+        )
+        if ctx_section:
+            # Include the section and its children
+            ctx_idx = structure.index(ctx_section)
+            ctx_parts = [ctx_section["content"]]
+            for s in structure[ctx_idx + 1:]:
+                if s["level"] <= ctx_section["level"]:
+                    break
+                ctx_parts.append(s["content"])
+            global_context = "\n".join(ctx_parts)
+
+    system_prompt = gemini_client.build_system_prompt(
+        doc_tree=doc_tree,
+        scope_label=scope_label,
+        scope_content=scope_content,
+        global_context=global_context,
+    )
+
+    session_id = str(_uuid.uuid4())
+
+    try:
+        await session_repo.create(
+            session_id=session_id,
+            model=req.model,
+            system_prompt=system_prompt,
+            doc_name=req.doc_name,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    logger.info(f"[Gemini] Session created: {session_id} scope='{scope_label}' model='{req.model}'")
+    return {"session_id": session_id, "model": req.model, "scope": scope_label}
+
+
+@app.get("/api/gemini/session/{session_id}")
+async def get_gemini_session(session_id: str):
+    """
+    Return metadata for an active Gemini chat session.
+
+    Returns exchange_count, model, timestamps, and a `warn` flag
+    that turns True when exchange_count reaches 15.
+    """
+    info = await session_repo.info(session_id)
+    if info is None:
+        raise HTTPException(status_code=404, detail="Session not found or expired.")
+    return info
+
+
+@app.delete("/api/gemini/session/{session_id}", status_code=204)
+async def destroy_gemini_session(session_id: str):
+    """
+    Destroy a Gemini chat session and release its memory.
+
+    Idempotent: returns 204 even if the session has already expired.
+    """
+    await session_repo.destroy(session_id)
+    logger.info(f"[Gemini] Session destroyed: {session_id}")
+    return JSONResponse(status_code=204, content=None)
+
+
+@app.post("/api/gemini/chat/{session_id}")
+async def gemini_chat(session_id: str, req: GeminiChatRequest):
+    """
+    Send one user turn to an active Gemini chat session.
+
+    If `linked_sections` is non-empty, each section's content is fetched from
+    the document (identified by the session's stored doc_name) and prepended
+    to the message before sending to the SDK. The UI clears chips after each
+    send — linked sections are strictly one-shot per message.
+
+    Returns:
+        GeminiSpecResponse fields (discussion, commit_summary, updates)
+        plus exchange_count and warn flag.
+    """
+    # Verify session exists before doing any work
+    info = await session_repo.info(session_id)
+    if info is None:
+        raise HTTPException(status_code=404, detail="Session not found or expired.")
+
+    # Build the final message, prepending any linked-section content
+    message_parts = []
+    if req.linked_sections:
+        doc_name = info["doc_name"]
+        structure = manager.get_structure(doc_name)
+        title_to_content = {s["title"]: s["content"] for s in structure}
+
+        for section_title in req.linked_sections:
+            # Case-insensitive lookup
+            content = next(
+                (v for k, v in title_to_content.items()
+                 if k.lower() == section_title.lower()),
+                None
+            )
+            if content:
+                message_parts.append(
+                    f"[LINKED SECTION: {section_title}]\n{content}\n---"
+                )
+            else:
+                logger.warning(f"[Gemini] Linked section not found: '{section_title}'")
+
+    message_parts.append(req.message)
+    message = "\n\n".join(message_parts)
+
+    try:
+        parsed = await session_repo.send(session_id, message)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Session not found or expired.")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"[Gemini] Unexpected error in session {session_id}: {exc}")
+        raise HTTPException(status_code=500, detail=f"Gemini API error: {exc}")
+
+    # Re-fetch info for updated exchange_count
+    info = await session_repo.info(session_id)
+    return {
+        **parsed.model_dump(),
+        "exchange_count": info["exchange_count"] if info else 0,
+        "warn": info["warn"] if info else False,
+    }
+
+
 
 # Mount static files (Frontend)
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

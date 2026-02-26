@@ -21,6 +21,7 @@ This is a browser-side module, consuming the backend API.
 * **Protocol Processing**: `processInput()` sends text to `POST /api/process`.
 * **Merging**: `selectPendingMerge()` and `getMergePromise()` handle background task polling and result display.
 * **Structure Rendering**: `renderStructure()` dynamically builds the sidebar tree.
+* **Summary Generation**: `generateFeatureSummary()` calls `POST /api/summary` for the active Feature section. `insertOrReplaceSummarySubsection()` splices or replaces the `#### Summary` subsection at the top of the section and commits the document.
 
 ## Tests
 Currently no dedicated frontend tests found in this directory.

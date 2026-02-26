@@ -791,13 +791,26 @@ async function viewFullDocument() {
 }
 
 function updateEditButtonState() {
-    const btn = document.getElementById('btnEditSection');
-    if (btn) {
+    const editBtn = document.getElementById('btnEditSection');
+    const summaryBtn = document.getElementById('btnGenerateSummary');
+
+    if (editBtn) {
         if (currentViewedSection) {
-            btn.classList.remove('hidden');
-            btn.textContent = `Edit '${currentViewedSection}'`;
+            editBtn.classList.remove('hidden');
+            editBtn.textContent = `Edit '${currentViewedSection}'`;
         } else {
-            btn.classList.add('hidden');
+            editBtn.classList.add('hidden');
+        }
+    }
+
+    if (summaryBtn) {
+        // Only show the Summary button for Feature sections (title starts with "Feature")
+        const isFeature = currentViewedSection &&
+            currentViewedSection.toLowerCase().startsWith('feature');
+        if (isFeature) {
+            summaryBtn.classList.remove('hidden');
+        } else {
+            summaryBtn.classList.add('hidden');
         }
     }
 }
@@ -833,6 +846,127 @@ function editCurrentSection() {
 
     // Scroll to arbiter
     document.getElementById('panelRight').scrollTo(0, 0);
+}
+
+
+/**
+ * generateFeatureSummary
+ *
+ * Calls POST /api/summary for the currently viewed Feature section.
+ * On success, delegates to insertOrReplaceSummarySubsection() to splice
+ * the summary text in as the first subsection of the feature and commit.
+ */
+async function generateFeatureSummary() {
+    if (!currentViewedSection) return;
+
+    const name = document.getElementById('docName').value;
+    const btn = document.getElementById('btnGenerateSummary');
+
+    // Disable button during generation
+    btn.disabled = true;
+    btn.textContent = '⏳ Generating…';
+    notify(`Generating summary for '${currentViewedSection}'…`);
+
+    try {
+        const res = await fetch(`${API_BASE}/summary`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, section: currentViewedSection })
+        });
+
+        if (!res.ok) {
+            const err = await res.json();
+            notify(`Error: ${err.detail || 'Summary generation failed.'}`);
+            return;
+        }
+
+        const data = await res.json();
+        await insertOrReplaceSummarySubsection(currentViewedSection, data.summary, name);
+        notify(`Summary generated for '${currentViewedSection}'.`);
+
+    } catch (e) {
+        console.error('[Summary] Unexpected error:', e);
+        notify('Error generating summary. Check the console.');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '✨ Summary';
+    }
+}
+
+/**
+ * insertOrReplaceSummarySubsection
+ *
+ * Inserts or replaces the `#### Summary` subsection at the top of a feature
+ * section (immediately after the `### Feature: …` header line) in
+ * currentStructure, then commits the full document to the server and
+ * refreshes the structure and preview.
+ *
+ * @param {string} sectionTitle - Exact title of the feature section.
+ * @param {string} summaryText  - Plain-prose summary produced by Ollama.
+ * @param {string} docName      - Current document name.
+ */
+async function insertOrReplaceSummarySubsection(sectionTitle, summaryText, docName) {
+    const idx = currentStructure.findIndex(i => i.title === sectionTitle);
+    if (idx === -1) {
+        console.error(`[Summary] Section '${sectionTitle}' not found in currentStructure.`);
+        return;
+    }
+
+    const item = currentStructure[idx];
+    const summaryBlock = `#### Summary\n\n${summaryText}\n`;
+    const lines = item.content.split('\n');
+
+    // Find the first line (the ### header) and split the rest
+    let headerEndIdx = 0;
+    for (let i = 0; i < lines.length; i++) {
+        if (lines[i].trim() === '') {
+            headerEndIdx = i;
+        } else if (i > 0) {
+            headerEndIdx = i;
+            break;
+        }
+    }
+
+    // Strip any existing #### Summary subsection from the content
+    const SUMMARY_HEADER = '#### Summary';
+    let bodyLines = lines;
+    const summaryStart = lines.findIndex(l => l.trim() === SUMMARY_HEADER);
+    if (summaryStart !== -1) {
+        // Remove lines from #### Summary up to (but not including) the next #### header
+        let summaryEnd = summaryStart + 1;
+        while (summaryEnd < lines.length && !lines[summaryEnd].trim().startsWith('####')) {
+            summaryEnd++;
+        }
+        bodyLines = [...lines.slice(0, summaryStart), ...lines.slice(summaryEnd)];
+    }
+
+    // Find the header line (### ...) and re-insert #### Summary right after it
+    const headerLineIdx = bodyLines.findIndex(l => l.trim().startsWith('#'));
+    const insertAfter = headerLineIdx === -1 ? 0 : headerLineIdx + 1;
+    const newLines = [
+        ...bodyLines.slice(0, insertAfter),
+        '',
+        ...summaryBlock.split('\n'),
+        ...bodyLines.slice(insertAfter)
+    ];
+
+    // Update in-memory structure
+    currentStructure[idx].content = newLines.join('\n');
+
+    // Persist full document
+    const fullContent = currentStructure.map(i => i.content).join('\n');
+    await fetch(`${API_BASE}/commit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: docName, content: fullContent })
+    });
+
+    // Refresh structure from server so the new sub-section appears correctly
+    await loadStructure();
+
+    // Re-display the section
+    const content = getSectionWithChildren(sectionTitle);
+    document.getElementById('docPreview').textContent = content || currentStructure[idx]?.content || '';
 }
 
 function findSmartInsertionIndex(title, level) {
@@ -1480,4 +1614,308 @@ async function viewFullDocument() {
     updateEditButtonState();
     notify("Full document displayed.");
 }
+
+// =============================================================================
+// GEMINI AI MODE
+// =============================================================================
+
+let currentGeminiSessionId = null;  // active session UUID, or null
+let geminiModelsLoaded = false;      // load model list only once
+let linkedSections = [];             // sections to prepend in next message (cleared after send)
+
+// ---------------------------------------------------------------------------
+// Mode toggle
+// ---------------------------------------------------------------------------
+
+function switchMode(mode) {
+    const manualPanel = document.getElementById('manualPanel');
+    const geminiPanel = document.getElementById('geminiPanel');
+    const btnManual = document.getElementById('btnModeManual');
+    const btnGemini = document.getElementById('btnModeGemini');
+
+    if (mode === 'gemini') {
+        manualPanel.classList.add('hidden');
+        geminiPanel.classList.remove('hidden');
+        btnManual.classList.remove('active');
+        btnGemini.classList.add('active');
+        if (!geminiModelsLoaded) {
+            _loadGeminiModels();
+            _populateScopeSelect();
+            geminiModelsLoaded = true;
+        }
+    } else {
+        geminiPanel.classList.add('hidden');
+        manualPanel.classList.remove('hidden');
+        btnGemini.classList.remove('active');
+        btnManual.classList.add('active');
+    }
+}
+
+async function _loadGeminiModels() {
+    try {
+        const res = await fetch(`${API_BASE}/gemini/models`);
+        const data = await res.json();
+        const sel = document.getElementById('geminiModel');
+        sel.innerHTML = '';
+        data.models.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m;
+            opt.textContent = m;
+            if (m === data.default) opt.selected = true;
+            sel.appendChild(opt);
+        });
+    } catch (e) {
+        console.warn('[Gemini] Could not load models:', e);
+    }
+}
+
+function _populateScopeSelect() {
+    const sel = document.getElementById('geminiScope');
+    sel.innerHTML = '<option value="document">Document level</option>';
+    currentStructure
+        .filter(s => s.level <= 3)
+        .forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s.title;
+            opt.textContent = '\u00a0'.repeat((s.level - 1) * 2) + s.title;
+            sel.appendChild(opt);
+        });
+}
+
+// ---------------------------------------------------------------------------
+// Session lifecycle
+// ---------------------------------------------------------------------------
+
+async function startGeminiSession() {
+    const model = document.getElementById('geminiModel').value;
+    const scope = document.getElementById('geminiScope').value;
+    const sendCtx = document.getElementById('geminiSendContext').checked;
+    const docName = document.getElementById('docName').value;
+
+    if (currentGeminiSessionId) {
+        await _destroySession(currentGeminiSessionId);
+    }
+
+    notify('Starting Gemini chat session...');
+    try {
+        const res = await fetch(`${API_BASE}/gemini/session`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                doc_name: docName,
+                scope: scope,
+                model: model,
+                include_global_context: sendCtx,
+            }),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            notify(`Error: ${err.detail}`);
+            return;
+        }
+        const data = await res.json();
+        currentGeminiSessionId = data.session_id;
+
+        // Reset chat UI
+        document.getElementById('geminiHistory').innerHTML = '';
+        document.getElementById('geminiContextChips').innerHTML = '';
+        linkedSections = [];
+        _updateExchangeCounter(0);
+        document.getElementById('geminiWarning').classList.add('hidden');
+
+        // Enable controls
+        document.getElementById('geminiInput').disabled = false;
+        document.getElementById('btnGeminiSend').disabled = false;
+        document.getElementById('btnLinkSection').disabled = false;
+        document.getElementById('btnGeminiEndSession').disabled = false;
+        document.getElementById('btnGeminiNewSession').textContent = '\u21ba New Chat';
+
+        _appendChatBubble('system', `Session started \u2014 scope: ${data.scope} \u2014 model: ${data.model}`);
+        notify('Gemini session started.');
+    } catch (e) {
+        notify(`Failed to start session: ${e}`);
+        console.error('[Gemini] startSession error:', e);
+    }
+}
+
+async function endGeminiSession() {
+    if (!currentGeminiSessionId) return;
+    await _destroySession(currentGeminiSessionId);
+    currentGeminiSessionId = null;
+
+    document.getElementById('geminiInput').disabled = true;
+    document.getElementById('btnGeminiSend').disabled = true;
+    document.getElementById('btnLinkSection').disabled = true;
+    document.getElementById('btnGeminiEndSession').disabled = true;
+    document.getElementById('btnGeminiNewSession').textContent = '\u25b6 Start Chat';
+    document.getElementById('geminiExchangeCount').classList.add('hidden');
+
+    _appendChatBubble('system', 'Session ended.');
+    notify('Gemini session ended.');
+}
+
+async function _destroySession(sessionId) {
+    try {
+        await fetch(`${API_BASE}/gemini/session/${sessionId}`, { method: 'DELETE' });
+    } catch (e) {
+        console.warn('[Gemini] destroy session error (ignoring):', e);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sending messages
+// ---------------------------------------------------------------------------
+
+async function sendGeminiMessage() {
+    const input = document.getElementById('geminiInput');
+    const message = input.value.trim();
+    if (!message) { notify('Please type a message first.'); return; }
+    if (!currentGeminiSessionId) { notify('No active session.'); return; }
+
+    // Snapshot & clear chips immediately
+    const sectionsToSend = [...linkedSections];
+    linkedSections = [];
+    document.getElementById('geminiContextChips').innerHTML = '';
+
+    document.getElementById('btnGeminiSend').disabled = true;
+    input.value = '';
+
+    const label = message + (sectionsToSend.length ? `\n\n\ud83d\udcce ${sectionsToSend.join(', ')}` : '');
+    _appendChatBubble('user', label);
+
+    try {
+        const res = await fetch(`${API_BASE}/gemini/chat/${currentGeminiSessionId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message, linked_sections: sectionsToSend }),
+        });
+
+        if (!res.ok) {
+            const err = await res.json();
+            _appendChatBubble('system', `Error: ${err.detail}`);
+            notify(`Gemini error: ${err.detail}`);
+            return;
+        }
+
+        const data = await res.json();
+        _appendChatBubble('model', data.discussion);
+        _updateExchangeCounter(data.exchange_count);
+
+        if (data.warn) {
+            document.getElementById('geminiWarning').classList.remove('hidden');
+        }
+
+        if (data.updates && data.updates.length > 0) {
+            geminiUpdatesToPendingMerges(data.updates, data.commit_summary || 'Gemini AI update');
+            _appendChatBubble('system',
+                `\ud83d\udcdd ${data.updates.length} spec update(s) queued \u2014 review in sidebar.`);
+        }
+
+    } catch (e) {
+        _appendChatBubble('system', `Network error: ${e}`);
+        notify('Network error sending message.');
+        console.error('[Gemini] sendMessage error:', e);
+    } finally {
+        document.getElementById('btnGeminiSend').disabled = false;
+        input.focus();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Convert Gemini updates into pendingMerges (same shape as processInput)
+// ---------------------------------------------------------------------------
+
+function geminiUpdatesToPendingMerges(updates, commitSummary) {
+    window._geminiCommitSummary = commitSummary;  // used when validate-merge fires
+    mergeInProgress = true;
+    showMergeBlockingIndicator();
+
+    updates.forEach(u => {
+        const section = u.target_section;
+        const newText = u.content;
+        const summary = u.change_summary;
+
+        if (!pendingMerges[section]) pendingMerges[section] = [];
+        pendingMerges[section].push({
+            section,
+            original_text: getRealOriginal(section, ''),
+            new_text: newText,
+            summary,
+        });
+
+        // Pre-warm merge cache for first item
+        getMergePromise(section, getRealOriginal(section, ''), newText);
+    });
+
+    renderStructure();
+    notify(`Gemini proposed ${updates.length} update(s). Review them in the sidebar.`);
+}
+
+// ---------------------------------------------------------------------------
+// Link section dialog
+// ---------------------------------------------------------------------------
+
+function openLinkSectionDialog() {
+    const sel = document.getElementById('linkSectionSelect');
+    sel.innerHTML = '';
+    currentStructure.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.title;
+        opt.textContent = '\u00a0'.repeat((s.level - 1) * 2) + s.title;
+        sel.appendChild(opt);
+    });
+    document.getElementById('linkSectionDialog').showModal();
+}
+
+function confirmLinkSection() {
+    const sel = document.getElementById('linkSectionSelect');
+    const title = sel.value;
+    if (!title || linkedSections.includes(title)) {
+        document.getElementById('linkSectionDialog').close();
+        return;
+    }
+    linkedSections.push(title);
+    _addContextChip(title);
+    document.getElementById('linkSectionDialog').close();
+}
+
+function _addContextChip(title) {
+    const container = document.getElementById('geminiContextChips');
+    const chip = document.createElement('span');
+    chip.className = 'context-chip';
+
+    const label = document.createTextNode(title + ' ');
+    chip.appendChild(label);
+
+    const remove = document.createElement('button');
+    remove.textContent = '\u00d7';
+    remove.title = 'Remove';
+    remove.onclick = () => {
+        linkedSections = linkedSections.filter(s => s !== title);
+        chip.remove();
+    };
+    chip.appendChild(remove);
+    container.appendChild(chip);
+}
+
+// ---------------------------------------------------------------------------
+// UI helpers
+// ---------------------------------------------------------------------------
+
+function _appendChatBubble(role, text) {
+    const history = document.getElementById('geminiHistory');
+    const div = document.createElement('div');
+    div.className = `chat-bubble ${role}`;
+    div.textContent = text;
+    history.appendChild(div);
+    history.scrollTop = history.scrollHeight;
+}
+
+function _updateExchangeCounter(count) {
+    const badge = document.getElementById('geminiExchangeCount');
+    badge.textContent = `${count} / 15 turns`;
+    badge.classList.remove('hidden');
+    badge.classList.toggle('warn', count >= 15);
+}
+
 

@@ -11,6 +11,8 @@ dependencies = [
     "numpy",
     "markdown>=3.10.2",
     "pygments>=2.19.2",
+    "google-genai",
+    "python-dotenv",
 ]
 
 [dependency-groups]

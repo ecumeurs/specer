@@ -284,7 +284,7 @@ textarea {
 }
 
 .hidden {
-    display: none;
+    display: none !important;
 }
 
 #statusMessage {
@@ -570,4 +570,232 @@ select {
 #docPreviewHtml {
     max-height: 600px;
     overflow-y: auto;
+}
+
+/* =============================================================================
+   GEMINI AI PANEL
+   ============================================================================= */
+
+/* Mode Toggle Pill */
+.mode-toggle {
+    display: flex;
+    gap: 0;
+    margin-bottom: 1rem;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.mode-btn {
+    flex: 1;
+    padding: 0.45rem 0.8rem;
+    background: #f0f0f0;
+    color: #555;
+    border: none;
+    border-radius: 0;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background 0.15s, color 0.15s;
+}
+
+.mode-btn:first-child {
+    border-right: 1px solid #ccc;
+}
+
+.mode-btn.active {
+    background: #2c3e50;
+    color: white;
+    font-weight: bold;
+}
+
+.mode-btn:hover:not(.active) {
+    background: #ddd;
+}
+
+/* Gemini Panel Layout */
+.gemini-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.gemini-config {
+    background: #f8f8f8;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.gemini-config-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.gemini-config-row label {
+    min-width: 60px;
+    font-size: 0.85rem;
+    color: #555;
+    font-weight: 600;
+}
+
+.gemini-config-row select {
+    flex: 1;
+    font-size: 0.85rem;
+}
+
+/* Override .checkbox-label colour inside panel (not in header) */
+.gemini-panel .checkbox-label {
+    color: #333;
+}
+
+/* Session Controls */
+.gemini-session-controls {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+/* Exchange Badge */
+.exchange-badge {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    border-radius: 12px;
+    background: #e8f4fd;
+    color: #2980b9;
+    font-size: 0.8rem;
+    font-weight: bold;
+    border: 1px solid #aed6f1;
+}
+
+.exchange-badge.warn {
+    background: #fdecea;
+    color: #c0392b;
+    border-color: #f1948a;
+}
+
+/* Warning Banner */
+.exchange-warning {
+    background: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 6px;
+    padding: 0.6rem 0.9rem;
+    font-size: 0.85rem;
+    color: #856404;
+}
+
+/* Chat History */
+.gemini-history {
+    min-height: 180px;
+    max-height: 340px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 0.75rem;
+    background: #fafafa;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+/* Chat Bubbles */
+.chat-bubble {
+    max-width: 90%;
+    padding: 0.5rem 0.75rem;
+    border-radius: 10px;
+    font-size: 0.88rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.chat-bubble.user {
+    align-self: flex-end;
+    background: #2980b9;
+    color: white;
+    border-bottom-right-radius: 2px;
+}
+
+.chat-bubble.model {
+    align-self: flex-start;
+    background: #ecf0f1;
+    color: #2c3e50;
+    border-bottom-left-radius: 2px;
+}
+
+.chat-bubble.system {
+    align-self: center;
+    background: transparent;
+    color: #7f8c8d;
+    font-style: italic;
+    font-size: 0.8rem;
+    padding: 0.2rem 0;
+}
+
+/* Input Area */
+.gemini-input-area {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.gemini-input-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+}
+
+/* Context Chips */
+.context-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    min-height: 0;
+}
+
+.context-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.2rem 0.5rem;
+    background: #eaf3fb;
+    border: 1px solid #aed6f1;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    color: #2471a3;
+}
+
+.context-chip button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    font-size: 0.9rem;
+    color: #2471a3;
+    line-height: 1;
+}
+
+.context-chip button:hover {
+    color: #c0392b;
+}
+
+/* Link Section Dialog */
+#linkSectionDialog {
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    padding: 1.5rem;
+    max-width: 420px;
+    width: 90%;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+#linkSectionDialog::backdrop {
+    background: rgba(0, 0, 0, 0.4);
+}
+
+#linkSectionDialog h3 {
+    margin-top: 0;
 }

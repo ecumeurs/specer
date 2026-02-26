@@ -35,10 +35,18 @@
             <div id="structureList" class="structure-list"></div>
         </div>
         <div class="panel left">
-            <h2>1. The Protocol</h2>
-            <div class="protocol-box">
-                <p>Copy this system prompt to your LLM:</p>
-                <textarea readonly id="protocolTemplate">You are acting as an Expert Technical Architect and Documentation Lead. We are collaborating to refine a software specification document.
+            <!-- Mode Toggle -->
+            <div class="mode-toggle">
+                <button id="btnModeManual" class="mode-btn active" onclick="switchMode('manual')">✏️ Manual</button>
+                <button id="btnModeGemini" class="mode-btn" onclick="switchMode('gemini')">✨ Gemini AI</button>
+            </div>
+
+            <!-- Manual Panel (existing flow) -->
+            <div id="manualPanel">
+                <h2>1. The Protocol</h2>
+                <div class="protocol-box">
+                    <p>Copy this system prompt to your LLM:</p>
+                    <textarea readonly id="protocolTemplate">You are acting as an Expert Technical Architect and Documentation Lead. We are collaborating to refine a software specification document.
 
 To ensure my automated tools can parse our discussion, you must strictly adhere to the following "Data Contract" for every response involving spec updates:
 
@@ -123,13 +131,64 @@ Change-Summary: Added rate limiting rules to the login endpoint.
 To prevent brute-force attacks, the login endpoint must enforce a rate limit of 5 attempts per minute per IP address.
 <<<SPEC_END>>>
                 </textarea>
-                <button onclick="copyProtocol()">Copy Protocol</button>
-            </div>
+                    <button onclick="copyProtocol()">Copy Protocol</button>
+                </div>
 
-            <h2>2. Input (LLM Reply)</h2>
-            <textarea id="inputArea" placeholder="Paste the LLM's response here..."></textarea>
-            <button onclick="processInput()" class="primary">Process Update</button>
-        </div>
+                <h2>2. Input (LLM Reply)</h2>
+                <textarea id="inputArea" placeholder="Paste the LLM's response here..."></textarea>
+                <button onclick="processInput()" class="primary">Process Update</button>
+            </div><!-- /manualPanel -->
+
+            <!-- Gemini Panel -->
+            <div id="geminiPanel" class="gemini-panel hidden">
+                <h2>1. Session Setup</h2>
+                <div class="gemini-config">
+                    <div class="gemini-config-row">
+                        <label for="geminiModel">Model</label>
+                        <select id="geminiModel">
+                            <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
+                        </select>
+                    </div>
+                    <div class="gemini-config-row">
+                        <label for="geminiScope">Scope</label>
+                        <select id="geminiScope">
+                            <option value="document">Document level</option>
+                        </select>
+                    </div>
+                    <div class="gemini-config-row">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="geminiSendContext" checked>
+                            Include global Context / Aim section
+                        </label>
+                    </div>
+                </div>
+                <div class="gemini-session-controls">
+                    <button id="btnGeminiNewSession" class="primary" onclick="startGeminiSession()">▶ Start
+                        Chat</button>
+                    <button id="btnGeminiEndSession" class="danger" onclick="endGeminiSession()" disabled>■ End
+                        Chat</button>
+                    <span id="geminiExchangeCount" class="exchange-badge hidden">0 / 15 turns</span>
+                </div>
+                <div id="geminiWarning" class="exchange-warning hidden">
+                    ⚠️ This discussion is reaching its limit (15 turns). Consider wrapping up and starting a new
+                    session.
+                </div>
+
+                <h2>2. Chat</h2>
+                <div id="geminiHistory" class="gemini-history"></div>
+
+                <div class="gemini-input-area">
+                    <div id="geminiContextChips" class="context-chips"></div>
+                    <textarea id="geminiInput" placeholder="Type your message…" rows="4" disabled></textarea>
+                    <div class="gemini-input-actions">
+                        <button id="btnLinkSection" class="secondary" onclick="openLinkSectionDialog()" disabled
+                            title="Attach a section to this message (sent once)">🔗 Link Section</button>
+                        <button id="btnGeminiSend" class="primary" onclick="sendGeminiMessage()" disabled>Send
+                            ➤</button>
+                    </div>
+                </div>
+            </div><!-- /geminiPanel -->
+        </div><!-- /panel left -->
 
         <div id="panelRight" class="panel right">
             <h2>3. The Arbiter (Merge Review)</h2>
@@ -206,6 +265,8 @@ To prevent brute-force attacks, the login endpoint must enforce a rate limit of 
                 <div style="display: flex; gap: 0.5rem;">
                     <button onclick="toggleDocumentFormat()" class="format-toggle" id="btnToggleDocument">View as
                         HTML</button>
+                    <button id="btnGenerateSummary" onclick="generateFeatureSummary()" class="secondary hidden"
+                        title="Generate a 100–200 word AI summary for this feature">✨ Summary</button>
                     <button id="btnEditSection" onclick="editCurrentSection()" class="primary hidden">Edit
                         Section</button>
                     <button id="btnEditDocument" onclick="editFullDocument()" class="primary hidden">Edit
@@ -228,6 +289,17 @@ To prevent brute-force attacks, the login endpoint must enforce a rate limit of 
             </div>
         </div>
     </main>
+
+    <!-- Link Section Dialog -->
+    <dialog id="linkSectionDialog">
+        <h3>Link a Section</h3>
+        <p>Select a section to attach to your next message (sent once).</p>
+        <select id="linkSectionSelect" size="10" style="width:100%"></select>
+        <div style="margin-top:1rem;display:flex;gap:0.5rem;justify-content:flex-end;">
+            <button onclick="confirmLinkSection()">Attach</button>
+            <button onclick="document.getElementById('linkSectionDialog').close()">Cancel</button>
+        </div>
+    </dialog>
 
     <!-- Commit Message Modal -->
     <div id="commitModal" class="modal hidden">

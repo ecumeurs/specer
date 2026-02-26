@@ -26,6 +26,63 @@ class OllamaClient:
             print(f"Error getting embedding: {e}")
             return []
 
+    async def generate_summary(self, content: str) -> str:
+        """Generate a concise executive summary of a feature section.
+
+        Goal:
+            Produce a 100–200 word plain-prose summary of the provided feature
+            content, suitable for storage as a ``#### Summary`` subsection at
+            the top of the feature.
+
+        Args:
+            content: The full markdown content of the feature section
+                     (including all sub-sections such as Constraints, API, etc.).
+
+        Returns:
+            A 100–200 word plain-prose summary string, or an error message
+            prefixed with ``"Error:"`` if the call fails.
+        """
+        prompt = f"""You are an expert technical writer.
+Read the following feature specification and write a concise executive summary.
+
+RULES:
+1. The summary MUST be between 100 and 200 words.
+2. Write in plain prose — no bullet points, no headers, no markdown.
+3. Cover: what the feature does, its main constraints, and its key technical approach.
+4. Output ONLY the summary text. Do not include any preamble or explanation.
+
+FEATURE CONTENT:
+{content}
+"""
+        try:
+            async with httpx.AsyncClient() as client:
+                res = await client.post(
+                    f"{self.base_url}/api/generate",
+                    json={
+                        "model": "llama3.2",
+                        "prompt": prompt,
+                        "stream": False
+                    },
+                    timeout=60.0
+                )
+                res.raise_for_status()
+                data = res.json()
+                return data["response"].strip()
+        except httpx.TimeoutException as e:
+            error_msg = f"Timeout after 60s: {type(e).__name__}"
+            print(f"[Ollama] {error_msg}")
+            return f"Error: {error_msg}"
+        except httpx.HTTPStatusError as e:
+            error_msg = f"HTTP {e.response.status_code}: {e.response.text[:100]}"
+            print(f"[Ollama] {error_msg}")
+            return f"Error: {error_msg}"
+        except Exception as e:
+            error_msg = f"{type(e).__name__}: {str(e) or 'Unknown error'}"
+            print(f"[Ollama] Unexpected error: {error_msg}")
+            import traceback
+            traceback.print_exc()
+            return f"Error: {error_msg}"
+
     async def generate_merge(self, original: str, new: str, summary: str) -> str:
         prompt = f"""
 You are an expert technical writer acting as a 'Semantic Merger'.
