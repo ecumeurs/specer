@@ -13,6 +13,7 @@ dependencies = [
     "pygments>=2.19.2",
     "google-genai",
     "python-dotenv",
+    "pyyaml>=6.0.3",
 ]
 
 [dependency-groups]

@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
+from server.blueprints_manager import blueprints_manager
 
 DATA_DIR = Path("data")
 HISTORY_DIR = DATA_DIR / "_history"
@@ -77,7 +78,16 @@ class DocumentManager:
         vc_path = self._get_vc_path(name)
         
         if reset or not md_path.exists():
-            default_content = """# Document Title
+            # Try to get default content from blueprints
+            default_content = ""
+            blueprints_manager.load_all() # Ensure blueprints are loaded
+            master_bp = blueprints_manager.get_blueprint("master")
+            
+            if master_bp:
+                default_content = master_bp.template_content
+            else:
+                # Fallback to hardcoded if master blueprint is missing
+                default_content = """# Document Title
 
 ## Lexicon
 
@@ -91,34 +101,7 @@ class DocumentManager:
 
 ## Features
 
-### Feature 1
-
-#### Context, Aim & Integration
-
-#### Constraints
-
-#### User Stories
-
-#### Technical Requirements
-
-#### API
-
-#### Data Layer
-
-#### Validation
-
-#### Dependencies
-
-#### Other Notes
-
 ## Roadmap
-
-### Milestone 1
-
-#### Content
-
-#### Validation
-
 """
             md_path.write_text(default_content, encoding="utf-8")
             vec_path.write_text("[]", encoding="utf-8")

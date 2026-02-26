@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 # Install python dependencies
 COPY pyproject.toml .
-RUN pip install fastapi uvicorn httpx numpy markdown pygments python-dotenv google-genai
+RUN pip install fastapi uvicorn httpx numpy markdown pygments python-dotenv google-genai pyyaml
 
 COPY . .
 

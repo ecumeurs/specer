@@ -29,5 +29,6 @@ Requirement for a user-friendly interface to manage the "Protocol" flow, visuali
 * [x] Merge review and commit.
 * [x] Stop button for long-running tasks.
 * [x] Feature summary generation via Ollama (`#### Summary` subsection, 100–200 words).
+* [ ] Config-driven dynamic structural blueprints overriding hardcoded features.
 * [ ] Rich text editor (currently textarea).
 * [ ] HTML Preview

@@ -7,10 +7,11 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Optional, Literal
+from typing import Optional, Literal, List
 from dotenv import load_dotenv
 from server.document_manager import manager
 from server.markdown_renderer import render_markdown
+from server.blueprints_manager import blueprints_manager
 
 # Load environment variables from .env file (GEMINI_API_KEY etc.)
 load_dotenv()
@@ -28,6 +29,7 @@ logger = logging.getLogger("specer")
 async def lifespan(app: FastAPI):
     """Start background tasks on startup."""
     asyncio.create_task(_idle_cleanup_loop())
+    blueprints_manager.load_all()
     yield
 
 
@@ -75,6 +77,12 @@ async def get_spec(name: str):
 async def get_structure(name: str):
     logger.info(f"STRUCTURE Request: name='{name}'")
     return {"structure": manager.get_structure(name)}
+
+@app.get("/api/blueprints")
+async def get_blueprints():
+    logger.info("BLUEPRINTS Request: fetching active schema")
+    bps = blueprints_manager.list_blueprints()
+    return {"blueprints": [bp.model_dump() for bp in bps]}
 
 @app.post("/api/commit")
 async def commit_doc(req: CommitRequest):
@@ -405,16 +413,18 @@ async def process_text(req: ProcessRequest):
                 is_existing_header = False
                 for t in existing_titles.keys():
                     if t.lower() == chunk_header_title.lower():
-                        is_existing_header = True
-                        break
+                         is_existing_header = True
+                         break
                 
-                # If not existing, and looks like a Feature/Milestone, force NEW.
-                lower_header = chunk_header_title.lower()
-                if not is_existing_header and (
-                    lower_header.startswith("milestone") or 
-                    lower_header.startswith("feature")
-                ):
-                    force_new_section_title = chunk_header_title
+                # If not existing, and matches a numerable blueprint template, force NEW.
+                if not is_existing_header:
+                    bp_match = blueprints_manager.match_blueprint_for_title(f"#{'#' * (current_header_level or 0)} {chunk_header_title}")
+                    # If current_header_level is None, it means the title was on the first line. We have to guess the level, but let's assume the parser handles it.
+                    # Or we just check startswith against all template prefixes.
+                    for bp in blueprints_manager.list_blueprints():
+                         if bp.meta.type == "numerable" and chunk_header_title.lower().startswith(bp.meta.template_prefix.lstrip('#').strip().lower()):
+                               force_new_section_title = chunk_header_title
+                               break
             
             if force_new_section_title:
                  section_title = force_new_section_title
@@ -464,13 +474,18 @@ async def process_text(req: ProcessRequest):
                     section_title = matched_title
                 else:
                     # 3. Check for Explicit "New" Intents (Feature/Milestone) in the INTENT string
-                    # If the intent explicitly names a Feature or Milestone that didn't match existing structure,
-                    # we force it as a NEW section to avoid Semantic Search mistakenly matching sub-headers (like "Context").
+                    # If the intent explicitly uses a template prefix that didn't match existing structure,
+                    # we force it as a NEW section to avoid Semantic Search mistakenly matching sub-headers.
                     is_explicit_new = False
                     lower_intent = target_section_intent.lower()
-                    if lower_intent.startswith("feature:") or lower_intent.startswith("milestone:") or \
-                       lower_intent.startswith("feature ") or lower_intent.startswith("milestone "):
-                        is_explicit_new = True
+                    
+                    for bp in blueprints_manager.list_blueprints():
+                        if bp.meta.type == "numerable":
+                            # check if intent starts with the template prefix (e.g., 'Feature: ')
+                            clean_prefix = bp.meta.template_prefix.lstrip('#').strip().lower()
+                            if lower_intent.startswith(clean_prefix):
+                                is_explicit_new = True
+                                break
                     
                     if is_explicit_new:
                          section_title = target_section_intent

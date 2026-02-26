@@ -1,5 +1,20 @@
 const API_BASE = "/api";
+let appBlueprints = [];
 
+// Load blueprints on startup
+async function loadBlueprints() {
+    try {
+        const res = await fetch(`${API_BASE}/blueprints`);
+        if (res.ok) {
+            const data = await res.json();
+            appBlueprints = data.blueprints;
+        } else {
+            console.error("Failed to load blueprints");
+        }
+    } catch (e) {
+        console.error("Error loading blueprints:", e);
+    }
+}
 async function initDocument(reset = false) {
     const name = document.getElementById('docName').value;
     if (reset && !confirm(`Are you sure you want to RESET '${name}'? This cannot be undone.`)) return;
@@ -33,32 +48,20 @@ async function loadStructure() {
     renderStructure();
 }
 
-// Helper: Check if a section is a placeholder (Feature 1, Milestone 1) with only template content
+// Helper: Check if a section is a placeholder with only template content
 function isPlaceholderSection(item) {
     const title = item.title || "";
     const content = item.content || "";
 
-    // Check if title is exactly "Feature 1" or "Milestone 1"
-    if (title !== "Feature 1" && title !== "Milestone 1") {
-        return false;
-    }
-
-    // Check if content is just the template structure (only headers, no actual content)
-    const lines = content.split('\n').filter(line => line.trim());
-
-    // If there are non-header lines with actual content, it's not a placeholder
-    for (const line of lines) {
-        const trimmed = line.trim();
-        // Skip empty lines and header lines
-        if (!trimmed || trimmed.startsWith('#')) {
-            continue;
+    // Check if content matches any blueprint template exactly (excluding the main header)
+    for (const bp of appBlueprints) {
+        if (bp.type === 'numerable') {
+            // We can just check if it only has header structure
+            return isEmptyOrTemplate(content);
         }
-        // If we find any non-header content, it's not a placeholder
-        return false;
     }
 
-    // Only headers found, this is a placeholder
-    return true;
+    return isEmptyOrTemplate(content);
 }
 
 // Helper: Check if content has child sections (nested headers at different levels)
@@ -250,12 +253,13 @@ function renderStructure() {
             return;
         }
 
-        // Only show levels 1-3 in tree (hide subsections like #### Context, #### Constraints)
-        // Level 1: # Document Title
-        // Level 2: ## Lexicon, ## Features, ## Roadmap
-        // Level 3: ### Feature: X, ### Milestone: Y
-        // Level 4+: #### Context, #### Technical Requirements (hidden from tree)
-        if (item.level > 3) {
+        // Only show levels up to the max defined in blueprints (or fallback to 3)
+        let maxVisibleLevel = 3;
+        if (appBlueprints.length > 0) {
+            maxVisibleLevel = Math.max(...appBlueprints.filter(bp => bp.type === 'numerable').map(bp => bp.level));
+        }
+
+        if (item.level > maxVisibleLevel) {
             return;
         }
 
@@ -376,15 +380,18 @@ function getRealOriginal(title, fallback) {
     let realOriginal = structItem ? structItem.content : "";
 
     if (!realOriginal) {
-        // Auto-Template Logic for New Sections
+        // Auto-Template Logic for New Sections Using Blueprints
         const lowerTitle = title.toLowerCase();
-        if (lowerTitle.startsWith("feature:") || lowerTitle.startsWith("feature ")) {
-            const name = title.replace(/feature[:\s]*/i, "").trim();
-            return generateFeatureTemplate(name);
-        }
-        if (lowerTitle.startsWith("milestone:") || lowerTitle.startsWith("milestone ")) {
-            const name = title.replace(/milestone[:\s]*/i, "").trim();
-            return generateMilestoneTemplate(name);
+
+        for (const bp of appBlueprints) {
+            if (bp.type === 'numerable') {
+                const prefixMatch = bp.template_prefix.replace(/^#+\s*/, '').trim().toLowerCase();
+                if (lowerTitle.startsWith(prefixMatch)) {
+                    // Generate template by combining title + template content
+                    const hashes = '#'.repeat(bp.level);
+                    return `${hashes} ${title}\n\n${bp.template_content}`;
+                }
+            }
         }
 
         realOriginal = fallback || "";
@@ -631,37 +638,6 @@ function getMergePromise(sectionTitle, original, newText) {
     return handle;
 }
 
-function generateFeatureTemplate(name) {
-    return `### Feature: ${name}
-
-#### Context, Aim & Integration
-
-#### Constraints
-
-#### User Stories
-
-#### Technical Requirements
-
-#### API
-
-#### Data Layer
-
-#### Validation
-
-#### Dependencies
-
-#### Other Notes
-`;
-}
-
-function generateMilestoneTemplate(name) {
-    return `### Milestone: ${name}
-
-#### Content
-
-#### Validation
-`;
-}
 
 async function createNewSectionFromTemplate(newTitle, templateContent, item, oldTitle) {
     // Let's add it to currentStructure immediately so it persists as a "Draft Section".
@@ -761,7 +737,10 @@ async function copyProtocol() {
 }
 
 // Initial Load
-window.onload = () => initDocument();
+window.onload = async () => {
+    await loadBlueprints();
+    initDocument();
+};
 
 /* --- New Logic for Structure & Smart Insert --- */
 
@@ -804,10 +783,23 @@ function updateEditButtonState() {
     }
 
     if (summaryBtn) {
-        // Only show the Summary button for Feature sections (title starts with "Feature")
-        const isFeature = currentViewedSection &&
-            currentViewedSection.toLowerCase().startsWith('feature');
-        if (isFeature) {
+        // Show the Summary button only if the current active blueprint allows it
+        let allowsSummary = false;
+
+        if (currentViewedSection) {
+            const lowerSection = currentViewedSection.toLowerCase();
+            for (const bp of appBlueprints) {
+                if (bp.type === 'numerable') {
+                    const prefix = bp.template_prefix.replace(/^#+\s*/, '').trim().toLowerCase();
+                    if (lowerSection.startsWith(prefix)) {
+                        allowsSummary = bp.allows_summary;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (allowsSummary) {
             summaryBtn.classList.remove('hidden');
         } else {
             summaryBtn.classList.add('hidden');
@@ -971,10 +963,22 @@ async function insertOrReplaceSummarySubsection(sectionTitle, summaryText, docNa
 
 function findSmartInsertionIndex(title, level) {
     console.log(`[SmartInsert] Calculating index for '${title}'...`);
-    // 1. Determine Parent Context
+    // 1. Determine Parent Context via Blueprints
     let parentTitle = "";
-    if (title.toLowerCase().startsWith("feature")) parentTitle = "Features";
-    if (title.toLowerCase().startsWith("milestone")) parentTitle = "Roadmap";
+    let itemLevel = level;
+
+    // Find matching blueprint
+    const lowerTitle = title.toLowerCase();
+    for (const bp of appBlueprints) {
+        if (bp.type === 'numerable') {
+            const prefix = bp.template_prefix.replace(/^#+\s*/, '').trim().toLowerCase();
+            if (lowerTitle.startsWith(prefix)) {
+                parentTitle = bp.parent_section;
+                itemLevel = bp.level; // Use the proper level
+                break;
+            }
+        }
+    }
 
     // If no specific parent logic, return -1 (append)
     if (!parentTitle) {

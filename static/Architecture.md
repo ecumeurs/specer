@@ -16,12 +16,12 @@ This is a browser-side module, consuming the backend API.
 * Outputs: DOM updates, API calls to `/api/...`.
 
 ## Internal Mechanics
-* **State Management**: Uses global variables (`currentStructure`, `pendingMerges`, `mergeCache`) to track document state and merge operations.
-* **Initialization**: `initDocument()` fetches initial data.
+* **State Management**: Uses global variables (`currentStructure`, `pendingMerges`, `mergeCache`, `blueprints`) to track document state and merge operations.
+* **Initialization**: `initDocument()` fetches initial data. Fetches blueprints on startup to hydrate dynamic layouts.
 * **Protocol Processing**: `processInput()` sends text to `POST /api/process`.
-* **Merging**: `selectPendingMerge()` and `getMergePromise()` handle background task polling and result display.
-* **Structure Rendering**: `renderStructure()` dynamically builds the sidebar tree.
-* **Summary Generation**: `generateFeatureSummary()` calls `POST /api/summary` for the active Feature section. `insertOrReplaceSummarySubsection()` splices or replaces the `#### Summary` subsection at the top of the section and commits the document.
+* **Merging**: `selectPendingMerge()` and `getMergePromise()` handle background task polling and result display. Uses blueprints to bypass LLM on empty section slots.
+* **Structure Rendering**: `renderStructure()` dynamically builds the sidebar tree relying on blueprint config (e.g., max visible depths).
+* **Summary Generation**: `generateFeatureSummary()` calls `POST /api/summary` based on `blueprint.allows_summary` targets. `insertOrReplaceSummarySubsection()` splices the `#### Summary` block.
 
 ## Tests
 Currently no dedicated frontend tests found in this directory.
